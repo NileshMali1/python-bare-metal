@@ -57,7 +57,7 @@ class PhysicalVolume(object):
         return self._filter_info("NEW")
 
     def get_volume_group(self):
-        return self._filter_info("VG Name")
+        return VolumeGroup(self._filter_info("VG Name"))
 
     def remove(self):
         output = Helper.exec(["pvremove", self._pv_path])

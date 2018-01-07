@@ -1,6 +1,7 @@
 import os
 from lvm2.helper import Helper
-from lvm2.logical_volume_snapshot import LogicalVolumeSnapshot
+from lvm2.logical_volume_snapshot import Snapshot
+from lvm2.volume_group import VolumeGroup
 
 
 class LogicalVolume(object):
@@ -10,8 +11,7 @@ class LogicalVolume(object):
         self._volume_path = volume_path
 
     def get_info(self):
-        args = ["lvdisplay", self._volume_path]
-        output = Helper.exec(args)
+        output = Helper.exec(["lvdisplay", self._volume_path])
         if output:
             return Helper.format(output, "--- Logical volume ---")
         return None
@@ -26,10 +26,9 @@ class LogicalVolume(object):
         return info
 
     def get_snapshots(self):
-        snapshot_names = self._filter_info("source_of")
-        if snapshot_names:
-            return [LogicalVolumeSnapshot(self._volume_path.replace(self.get_name(), snapshot_name))
-                     for snapshot_name in snapshot_names]
+        snapshots = self._filter_info("source_of")
+        if snapshots:
+            return [Snapshot(self._volume_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
         return None
 
     def get_name(self):
@@ -42,13 +41,13 @@ class LogicalVolume(object):
         return self._filter_info("LV Size").split(" ")
 
     def get_volume_group(self):
-        return self._filter_info("VG Name")
+        return VolumeGroup(self._filter_info("VG Name"))
 
     def rename(self, new_name):
         old_name = self.get_name()
-        vg_name = self.get_volume_group()
-        output = Helper.exec(["lvrename", vg_name, old_name, new_name])
-        if output and "Renamed \""+old_name+"\" to \""+new_name+"\" in volume group \""+vg_name+"\"":
+        vg = self.get_volume_group()
+        output = Helper.exec(["lvrename", vg.get_name(), old_name, new_name])
+        if output and "Renamed \""+old_name+"\" to \""+new_name+"\" in volume group \""+vg.get_name()+"\"":
             self._volume_path = self._volume_path.replace(old_name, new_name)
             return True
         return False

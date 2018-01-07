@@ -17,11 +17,22 @@ class Helper(object):
         pass
 
     @staticmethod
+    def exec_fdisk(disk_path):
+        if not disk_path:
+            return None
+        output = subprocess.check_output(["fdisk", "-lu", disk_path])
+        if output:
+            return output.decode("utf-8")
+        return None
+
+    @staticmethod
     def exec_dd(source, destination):
         if not (source and destination):
-            return False
+            return None
         output = subprocess.check_output(["dd", "if="+source, "of="+destination, "bs=4M"])
-        return False
+        if output:
+            return output.decode("utf-8")
+        return None
 
     @staticmethod
     def format(output, section_start):

@@ -201,17 +201,43 @@ class LogicalVolume(object):
     def get_volume_group(self):
         return VolumeGroup(self._filter_info("VG Name"))
 
-    def dump_to_template(self, destination_path):
+    def dump_to_image(self, destination_path):
         output = Helper.exec_dd(self.get_path(), destination_path)
         if output:
             return True
         return False
 
-    def restore_from_template(self, source_path):
+    def restore_from_image(self, source_path):
         output = Helper.exec_dd(source_path, self.get_path())
         if output:
             return True
         return False
+
+    def get_partitions(self):
+        metadata = Helper.exec(["fdisk", "-u=sectors", "-l", self.get_path()])
+        sector_size = None
+        partition_section_columns = 0
+        partitions = []
+        if metadata:
+            for line in metadata.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.search("Sector size .*?: (\d+) bytes", line)
+                if match:
+                    sector_size = match.group(1)
+                    continue
+                if sector_size and re.search(r"Device\s+Boot\s+Start\s+End", line):
+                    partition_section_columns = len(line.split())
+                    continue
+                if partition_section_columns > 0:
+                    splits = line.split()
+                    if re.search(r"\d+", splits[1]):
+                        splits.insert(1, False)
+                    else:
+                        splits[1] = True
+                    partitions.append(Partition(splits))
+        return partitions
 
     def rename(self, new_name):
         old_name = self.get_name()
@@ -235,6 +261,40 @@ class LogicalVolume(object):
             self._volume_path = None
             return True
         return False
+
+
+class Partition(object):
+    """A partition object type"""
+
+    def __init__(self, args):
+        self._path_id = args[0]
+        self._bootable = args[1]
+        self._start = int(args[2])
+        self._end = int(args[3])
+        self._sectors = int(args[4])
+        self._size = args[5]
+        self._id = int(args[6])
+        self._type = args[7]
+
+    def get_start_offset(self):
+        return self._start * 512
+
+    def is_bootable(self):
+        return self._bootable
+
+    def get_sectors(self):
+        return self._sectors
+
+    def get_size(self):
+        return self._size
+
+    def compute_size(self, unit="mib"):
+        divide_by = 1
+        if unit.lower() == "gib":
+            divide_by = 1024*1024*1024
+        elif unit.lower() == "mib":
+            divide_by = 1024*1024
+        return int((self._end-self._start)*512/divide_by)
 
 
 class Snapshot(LogicalVolume):

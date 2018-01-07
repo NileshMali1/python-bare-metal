@@ -6,12 +6,22 @@ class Helper(object):
     """ to execute lvm2 commands """
 
     @staticmethod
-    def mount(what, where, how):
+    def mount(what, sub_what, where, how):
+
+        def calculate_bytes():
+            pass
         pass
     
     @staticmethod
     def unmount():
         pass
+
+    @staticmethod
+    def exec_dd(source, destination):
+        if not (source and destination):
+            return False
+        output = subprocess.check_output(["dd", "if="+source, "of="+destination, "bs=4M"])
+        return False
 
     @staticmethod
     def format(output, section_start):

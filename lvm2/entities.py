@@ -201,6 +201,18 @@ class LogicalVolume(object):
     def get_volume_group(self):
         return VolumeGroup(self._filter_info("VG Name"))
 
+    def dump_to_template(self, destination_path):
+        output = Helper.exec_dd(self.get_path(), destination_path)
+        if output:
+            return True
+        return False
+
+    def restore_from_template(self, source_path):
+        output = Helper.exec_dd(source_path, self.get_path())
+        if output:
+            return True
+        return False
+
     def rename(self, new_name):
         old_name = self.get_name()
         vg = self.get_volume_group()

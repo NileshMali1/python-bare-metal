@@ -3,11 +3,134 @@ import os
 import re
 
 
-class PhysicalVolume(object):
-    """Wrapper for physical volume"""
+class Disk(object):
+    """An general disk device object. Physical Disk, LVM LV, VMDK and other block devices are or could be disk"""
+
+    def __init__(self, device_path):
+        self._device_path = device_path
+        self._sector_size = None
+
+    def get_path(self):
+        return self._device_path
+
+    def set_sector_size(self, sector_size):
+        self._sector_size = sector_size
+
+    def get_sector_size(self):
+        return self._sector_size
+
+    def get_partitions(self):
+        metadata = Helper.exec(["fdisk", "-u=sectors", "-l", self.get_path()])
+        partitions = []
+        if metadata:
+            partition_section_columns = 0
+            for line in metadata.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.search("Sector size .*?: (\d+) bytes", line)
+                if match:
+                    self.set_sector_size(int(match.group(1)))
+                    continue
+                if re.search(r"Device\s+Boot\s+Start\s+End", line):
+                    partition_section_columns = len(line.split())
+                    continue
+                if partition_section_columns > 0:
+                    splits = line.split()
+                    if re.search(r"\d+", splits[1]):
+                        splits.insert(1, False)
+                    else:
+                        splits[1] = True
+                    if len(splits) > 7:
+                        extra_splits = splits[8:]
+                        splits[7] += ' ' + ' '.join(extra_splits)
+                        for extra_split in extra_splits:
+                            splits.remove(extra_split)
+                    partitions.append(Partition(splits[0], splits[1:]))
+        return partitions
+
+    def mount(self, mount_location):
+        for partition in self.get_partitions():
+            if partition.compute_size(self.get_sector_size(), "gb") > 2:
+                offset = partition.get_sector_start() * self.get_sector_size()
+                output = Helper.exec_mount(self.get_path(), offset, mount_location)
+                if output:
+                    return True
+        return False
+
+    def unmount(self, mount_location):
+        output = Helper.exec_umount(mount_location)
+        if output:
+            return True
+        return False
+
+
+class Partition(object):
+    """A disk partition object populated by fdisk command"""
+
+    def __init__(self, path_id, args=None):
+        self._path_id = path_id
+        self._boot_flag = False
+        self._start = None
+        self._end = None
+        self._sectors = None
+        self._size = None
+        self._id = None
+        self._type = None
+        if args and len(args) == 7:
+            self._set_all(args)
+
+    def _set_all(self, args):
+        self._boot_flag = args[0]
+        self._start = int(args[1])
+        self._end = int(args[2])
+        self._sectors = int(args[3])
+        self._size = args[4]
+        self._id = int(args[5])
+        self._type = args[6]
+
+    def get_path_id(self):
+        return self._path_id
+
+    def get_disk(self):
+        pass
+
+    def is_bootable(self):
+        return self._boot_flag
+
+    def get_sector_start(self):
+        return self._start
+
+    def get_sector_end(self):
+        return self._end
+
+    def get_sectors(self):
+        return self._sectors
+
+    def get_size(self):
+        return self._size
+
+    def get_id(self):
+        return self._id
+
+    def get_type(self):
+        return self._type
+
+    def compute_size(self, sector_size=512, unit="gb"):
+        divide_by = 1
+        if unit.lower() == "gb":
+            divide_by = 1024*1024*1024
+        elif unit.lower() == "mb":
+            divide_by = 1024*1024
+        sectors = self.get_sectors()
+        return int((sectors*sector_size)/divide_by) if sectors else None
+
+
+class PhysicalVolume(Partition):
+    """LVMs Physical Volume object"""
 
     def __init__(self, pv_path):
-        self._pv_path = pv_path
+        super().__init__(pv_path)
 
     @classmethod
     def create(cls, disk_partition_path):
@@ -29,7 +152,7 @@ class PhysicalVolume(object):
         return pvs
 
     def get_info(self):
-        output = Helper.exec(["pvdisplay", self._pv_path])
+        output = Helper.exec(["pvdisplay", self._path_id])
         if output:
             is_new = False
             info = Helper.format(output, "--- Physical volume ---")
@@ -60,14 +183,14 @@ class PhysicalVolume(object):
         return VolumeGroup(self._filter_info("VG Name"))
 
     def remove(self):
-        output = Helper.exec(["pvremove", self._pv_path])
-        if output and 'Labels on physical volume "'+self._pv_path+'" successfully wiped.' in output:
+        output = Helper.exec(["pvremove", self.get_path_id()])
+        if output and 'Labels on physical volume "'+self.get_path_id()+'" successfully wiped.' in output:
             return True
         return False
 
 
 class VolumeGroup(object):
-    """ VG Ops """
+    """ LVMs Volume group object, it acts as a container grouping disk types """
 
     def __init__(self, vg_name):
         self._vg_name = vg_name
@@ -162,14 +285,14 @@ class VolumeGroup(object):
         return pvs
 
 
-class LogicalVolume(object):
+class LogicalVolume(Disk):
     """ LV Ops """
 
     def __init__(self, volume_path):
-        self._volume_path = volume_path
+        super().__init__(volume_path)
 
     def get_info(self):
-        output = Helper.exec(["lvdisplay", self._volume_path])
+        output = Helper.exec(["lvdisplay", self._device_path])
         if output:
             return Helper.format(output, "--- Logical volume ---")
         return None
@@ -186,7 +309,7 @@ class LogicalVolume(object):
     def get_snapshots(self):
         snapshots = self._filter_info("source_of")
         if snapshots:
-            return [Snapshot(self._volume_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
+            return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
         return None
 
     def get_name(self):
@@ -213,88 +336,28 @@ class LogicalVolume(object):
             return True
         return False
 
-    def get_partitions(self):
-        metadata = Helper.exec(["fdisk", "-u=sectors", "-l", self.get_path()])
-        sector_size = None
-        partition_section_columns = 0
-        partitions = []
-        if metadata:
-            for line in metadata.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                match = re.search("Sector size .*?: (\d+) bytes", line)
-                if match:
-                    sector_size = match.group(1)
-                    continue
-                if sector_size and re.search(r"Device\s+Boot\s+Start\s+End", line):
-                    partition_section_columns = len(line.split())
-                    continue
-                if partition_section_columns > 0:
-                    splits = line.split()
-                    if re.search(r"\d+", splits[1]):
-                        splits.insert(1, False)
-                    else:
-                        splits[1] = True
-                    partitions.append(Partition(splits))
-        return partitions
-
     def rename(self, new_name):
         old_name = self.get_name()
         vg = self.get_volume_group()
         output = Helper.exec(["lvrename", vg.get_name(), old_name, new_name])
         if output and "Renamed \""+old_name+"\" to \""+new_name+"\" in volume group \""+vg.get_name()+"\"":
-            self._volume_path = self._volume_path.replace(old_name, new_name)
+            self._device_path = self._device_path.replace(old_name, new_name)
             return True
         return False
 
     def create_snapshot(self, snapshot_name, size=5.0, unit="GiB"):
-        command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._volume_path, "--size", str(size)+unit]
+        command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._device_path, "--size", str(size)+unit]
         output = Helper.exec(command)
         if output and 'Logical volume "' + snapshot_name + '" created' in output:
             return True
         return False
 
     def remove(self):
-        output = Helper.exec(["lvremove", "--force", self._volume_path])
-        if output and 'Logical volume "' + os.path.basename(self._volume_path) + '" successfully removed' in output:
-            self._volume_path = None
+        output = Helper.exec(["lvremove", "--force", self._device_path])
+        if output and 'Logical volume "' + os.path.basename(self._device_path) + '" successfully removed' in output:
+            self._device_path = None
             return True
         return False
-
-
-class Partition(object):
-    """A partition object type"""
-
-    def __init__(self, args):
-        self._path_id = args[0]
-        self._bootable = args[1]
-        self._start = int(args[2])
-        self._end = int(args[3])
-        self._sectors = int(args[4])
-        self._size = args[5]
-        self._id = int(args[6])
-        self._type = args[7]
-
-    def get_start_offset(self):
-        return self._start * 512
-
-    def is_bootable(self):
-        return self._bootable
-
-    def get_sectors(self):
-        return self._sectors
-
-    def get_size(self):
-        return self._size
-
-    def compute_size(self, unit="mib"):
-        divide_by = 1
-        if unit.lower() == "gib":
-            divide_by = 1024*1024*1024
-        elif unit.lower() == "mib":
-            divide_by = 1024*1024
-        return int((self._end-self._start)*512/divide_by)
 
 
 class Snapshot(LogicalVolume):
@@ -303,19 +366,22 @@ class Snapshot(LogicalVolume):
     def __init__(self, snapshot_volume_path):
         super().__init__(snapshot_volume_path)
 
+    def get_size(self):
+        return self._filter_info("COW-table size").split(" ")
+
     def get_parent(self):
         result = self._filter_info("LV snapshot status")
         if result:
             matcher = re.search(r"active destination for ([a-zA-Z0-9]+)", result)
             if matcher:
-                return LogicalVolume(self._volume_path.replace(self.get_name(), matcher.group(1)))
+                return LogicalVolume(self._device_path.replace(self.get_name(), matcher.group(1)))
         return None
 
     def recreate(self, snapshot_name, lv_path, size=5.0, unit="GiB"):
         command = ["lvcreate", "--name", snapshot_name, "--snapshot", lv_path, "--size", str(size)+unit]
         output = Helper.exec(command)
         if output and 'Logical volume "' + snapshot_name + '" created' in output:
-            self._volume_path = lv_path.replace(os.path.basename(lv_path), snapshot_name)
+            self._device_path = lv_path.replace(os.path.basename(lv_path), snapshot_name)
             return True
         return False
 
@@ -327,6 +393,3 @@ class Snapshot(LogicalVolume):
             if self.recreate(snap_name, parent.get_path(), size, unit):
                 return True
         return False
-
-    def get_size(self):
-        return self._filter_info("COW-table size").split(" ")

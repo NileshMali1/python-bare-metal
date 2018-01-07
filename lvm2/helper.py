@@ -6,15 +6,25 @@ class Helper(object):
     """ to execute lvm2 commands """
 
     @staticmethod
-    def mount(what, sub_what, where, how):
-
-        def calculate_bytes():
-            pass
-        pass
+    def exec_mount(device, offset, mount_point, mode="rw"):
+        args = ["mount"]
+        options = ["loop", "offset="+offset]
+        if mode == "ro":
+            options.insert(1, mode)
+        else:
+            args.append("--rw")
+        args.extend(["--options", ','.join(options), device, mount_point])
+        output = subprocess.check_output(args)
+        if output:
+            return output.decode("utf-8")
+        return None
     
     @staticmethod
-    def unmount():
-        pass
+    def exec_umount(mount_point):
+        output = subprocess.check_output(["umount", "-f", mount_point])
+        if output:
+            return output.decode("utf-8")
+        return None
 
     @staticmethod
     def exec_fdisk(disk_path):

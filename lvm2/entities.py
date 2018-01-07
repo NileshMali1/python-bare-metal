@@ -20,7 +20,7 @@ class Disk(object):
         return self._sector_size
 
     def get_partitions(self):
-        metadata = Helper.exec(["fdisk", "-u=sectors", "-l", self.get_path()])
+        metadata = Helper.exec_fdisk(self.get_path())
         partitions = []
         if metadata:
             partition_section_columns = 0
@@ -85,7 +85,7 @@ class Partition(object):
         self._start = int(args[1])
         self._end = int(args[2])
         self._sectors = int(args[3])
-        self._size = args[4]
+        self._size = int(args[4])
         self._id = int(args[5])
         self._type = args[6]
 
@@ -116,14 +116,14 @@ class Partition(object):
     def get_type(self):
         return self._type
 
-    def compute_size(self, sector_size=512, unit="gb"):
+    def compute_size(self, unit="gb"):
         divide_by = 1
         if unit.lower() == "gb":
             divide_by = 1024*1024*1024
         elif unit.lower() == "mb":
             divide_by = 1024*1024
-        sectors = self.get_sectors()
-        return int((sectors*sector_size)/divide_by) if sectors else None
+        size_in_bytes = self.get_size()
+        return int(size_in_bytes/divide_by) if size_in_bytes else None
 
 
 class PhysicalVolume(Partition):

@@ -27,10 +27,10 @@ class Helper(object):
         return None
 
     @staticmethod
-    def exec_fdisk(disk_path):
-        if not disk_path:
+    def exec_fdisk(device):
+        if not device:
             return None
-        output = subprocess.check_output(["fdisk", "-lu", disk_path])
+        output = subprocess.check_output(["fdisk", "-u=sectors", "--bytes", "-l", device])
         if output:
             return output.decode("utf-8")
         return None

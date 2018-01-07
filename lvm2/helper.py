@@ -6,6 +6,14 @@ class Helper(object):
     """ to execute lvm2 commands """
 
     @staticmethod
+    def mount(what, where, how):
+        pass
+    
+    @staticmethod
+    def unmount():
+        pass
+
+    @staticmethod
     def format(output, section_start):
         section = False
         source_of = False

@@ -1,6 +1,6 @@
 import os
 from lvm2.helper import Helper
-from lvm2.logical_volume_snapshot import Snapshot
+from lvm2.snapshot import Snapshot
 from lvm2.volume_group import VolumeGroup
 
 

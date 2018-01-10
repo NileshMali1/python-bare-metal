@@ -1,3 +1,5 @@
 .idea/
 *.pyc
 test.py
+db.sqlite3
+manage.py

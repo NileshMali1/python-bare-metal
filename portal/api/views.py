@@ -1,13 +1,13 @@
-from django.shortcuts import render
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ParseError
-from rest_framework.decorators import detail_route, list_route
+from rest_framework.decorators import detail_route
 from api.models import Initiator, Target
 from api.serializers import InitiatorSerializer, TargetSerializer
-from lvm2.entities import VolumeGroup, LogicalVolume, Snapshot
-from urllib.parse import urlparse
 from django.urls import resolve
+from urllib.parse import urlparse
+from helpers.lvm2.entities import VolumeGroup
+
 
 def url_resolver(url):
     resolved_func, unused_args, resolved_kwargs = resolve(urlparse(url).path)

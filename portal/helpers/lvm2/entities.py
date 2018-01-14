@@ -1,7 +1,7 @@
 import os
 import re
 
-from lvm2.helper import Helper
+from helpers.lvm2.helper import Helper
 
 
 class Disk(object):

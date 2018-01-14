@@ -1,7 +1,7 @@
 import inspect
 from enum import Enum, unique
 from django.db import models
-from lvm2.entities import VolumeGroup
+from helpers.lvm2.entities import VolumeGroup
 
 
 @unique

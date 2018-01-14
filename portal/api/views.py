@@ -68,14 +68,18 @@ class TargetViewSet(viewsets.ModelViewSet):
         lv = VolumeGroup(target.group).get_logical_volumes(target.name)
         if not lv:
             raise ParseError("Target disk not found")
+        if target.active_snapshot:
+            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
+        else:
+            disk_path = lv.get_path()
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists():
             if iscsi_target.add():
                 pass
         if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(lv.get_path())
+            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and not exists:
-                iscsi_target.attach_logical_unit(lv.get_path(), lun)
+                iscsi_target.attach_logical_unit(disk_path, lun)
 
     @detail_route(methods=["PATCH"])
     def deactivate(self, request, pk):
@@ -87,9 +91,13 @@ class TargetViewSet(viewsets.ModelViewSet):
         lv = VolumeGroup(target.group).get_logical_volumes(target.name)
         if not lv:
             raise ParseError("Target disk not found")
+        if target.active_snapshot:
+            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
+        else:
+            disk_path = lv.get_path()
         iscsi_target = ISCSITarget(pk, target.name)
         if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(lv.get_path())
+            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and exists:
                 iscsi_target.detach_logical_unit(lun)
         if iscsi_target.exists():

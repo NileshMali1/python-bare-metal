@@ -49,6 +49,8 @@ class Target(models.Model):
     size_in_gb = models.FloatField(default=20.0)
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
+    active_snapshot = models.ForeignKey('Snapshot', on_delete=models.SET_NULL, null=True, blank=False,
+                                        related_name='active', limit_choices_to={'target_name': 'xyz'})
     initiator = models.ForeignKey(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="targets")
 
     class Meta:
@@ -57,6 +59,8 @@ class Target(models.Model):
     def __str__(self):
         if self.initiator:
             return self.name + " [is target of '" + self.initiator.name + "']"
+        else:
+            return self.name
 
 
 class Snapshot(models.Model):
@@ -66,3 +70,9 @@ class Snapshot(models.Model):
 
     class Meta:
         unique_together = ('name', 'target')
+
+    def __str__(self):
+        if self.target:
+            return self.name + " [is snapshot of '" + self.target.name + "']"
+        else:
+            return self.name

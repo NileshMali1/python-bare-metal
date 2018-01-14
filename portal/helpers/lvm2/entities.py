@@ -387,7 +387,7 @@ class LogicalVolume(Disk):
         snap = self.get_snapshots(snap_name)
         if not snap:
             return False
-        (size, unit) = snap.get_size()
+        (size, unit) = snap[0].get_size()
         if self.remove_snapshot(snap_name):
             if self.create_snapshot(snap_name, size, unit):
                 return True

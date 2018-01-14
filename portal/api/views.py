@@ -38,6 +38,27 @@ class TargetViewSet(viewsets.ModelViewSet):
     #    raise ParseError("Unable to partially update")
 
     @detail_route(methods=["PATCH"])
+    def revert(self, request, pk):
+        if not pk:
+            raise ParseError("PK Not found")
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+        if not lv:
+            raise ParseError("Target disk not found")
+        if request.data.__contains__('snapshot') and request.data.__getitem__('snapshot'):
+            snapshots = lv.get_snapshots(request.data.__getitem__('snapshot'))
+        else:
+            snapshots = lv.get_snapshots()
+        if snapshots:
+            snap_name = snapshots[0].get_name()
+            if lv.revert_to_snapshot(snap_name):
+                return Response("Successfully reverted to snapshot '%s'" % snap_name, status=status.HTTP_200_OK)
+            return Response("Could not revert to snapshot '%s'" % snap_name, status=status.HTTP_417_EXPECTATION_FAILED)
+        return Response("Could not find any snapshot to revert to.", status=status.HTTP_417_EXPECTATION_FAILED)
+
+    @detail_route(methods=["PATCH"])
     def activate(self, request, pk):
         if not pk:
             raise ParseError("PK Not found")

@@ -7,6 +7,7 @@ from api.serializers import InitiatorSerializer, TargetSerializer
 from django.urls import resolve
 from urllib.parse import urlparse
 from helpers.lvm2.entities import VolumeGroup
+from helpers.tgtadm.iscsi_target import ISCSITarget
 
 
 def url_resolver(url):
@@ -37,36 +38,84 @@ class TargetViewSet(viewsets.ModelViewSet):
     #    raise ParseError("Unable to partially update")
 
     @detail_route(methods=["PATCH"])
-    def operate(self, request, pk=None):
+    def activate(self, request, pk):
         if not pk:
             raise ParseError("PK Not found")
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
-        vg = VolumeGroup(target.group)
-        if not vg:
-            raise ParseError("Target group not found")
-        lv = vg.get_logical_volumes(target.name)
+        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
         if not lv:
             raise ParseError("Target disk not found")
-        if request.data.__contains__('operation') and request.data.__getitem__('operation'):
-            if request.data.__getitem__('operation').lower() in ["dump", "restore"]:
-                if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
-                    operation = request.data.__getitem__('operation')
-                    if operation.lower() == "dump":
-                        op = lv.dump_to_image(request.data.__getitem__('local_file'))
-                    else:
-                        op = lv.restore_from_image(request.data.__getitem__('local_file'))
-                    if op:
-                        message = "Successfully %sed the disk. Details: %s" % (operation, op)
-                        status_code = status.HTTP_200_OK
-                    else:
-                        message = "Failed to %s the disk. Details: %s" % (operation, op)
-                        status_code = status.HTTP_417_EXPECTATION_FAILED
-                    return Response(message, status=status_code)
-                return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
-            return Response("Unsupported operation", status=status.HTTP_501_NOT_IMPLEMENTED)
-        return Response("No operation specified", status=status.HTTP_400_BAD_REQUEST)
+        iscsi_target = ISCSITarget(pk, target.name)
+        if not iscsi_target.exists():
+            if iscsi_target.add():
+                pass
+        if iscsi_target.exists():
+            (lun, exists) = iscsi_target.get_logical_unit_number(lv.get_path())
+            if lun and not exists:
+                iscsi_target.attach_logical_unit(lv.get_path(), lun)
+
+    @detail_route(methods=["PATCH"])
+    def deactivate(self, request, pk):
+        if not pk:
+            raise ParseError("PK Not found")
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+        if not lv:
+            raise ParseError("Target disk not found")
+        iscsi_target = ISCSITarget(pk, target.name)
+        if iscsi_target.exists():
+            (lun, exists) = iscsi_target.get_logical_unit_number(lv.get_path())
+            if lun and exists:
+                iscsi_target.detach_logical_unit(lun)
+        if iscsi_target.exists():
+            if iscsi_target.remove():
+                pass
+
+    @detail_route(methods=["PATCH"])
+    def dump(self, request, pk):
+        if not pk:
+            raise ParseError("PK Not found")
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+        if not lv:
+            raise ParseError("Target disk not found")
+        if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
+            op = lv.dump_to_image(request.data.__getitem__('local_file'))
+            if op:
+                message = "Successfully dumped the disk. Details: %s" % op
+                status_code = status.HTTP_200_OK
+            else:
+                message = "Failed to dump the disk. Details: %s" % op
+                status_code = status.HTTP_417_EXPECTATION_FAILED
+            return Response(message, status=status_code)
+        return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+
+    @detail_route(methods=["PATCH"])
+    def restore(self, request, pk=None):
+        if not pk:
+            raise ParseError("PK Not found")
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+        if not lv:
+            raise ParseError("Target disk not found")
+        if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
+            op = lv.restore_from_image(request.data.__getitem__('local_file'))
+            if op:
+                message = "Successfully restored the disk. Details: %s" % op
+                status_code = status.HTTP_200_OK
+            else:
+                message = "Failed to restore the disk. Details: %s" % op
+                status_code = status.HTTP_417_EXPECTATION_FAILED
+            return Response(message, status=status_code)
+        return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
 
     def create(self, request):
         if request.data.__contains__('name') and request.data.__contains__('group'):

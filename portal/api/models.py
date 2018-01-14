@@ -28,6 +28,20 @@ class Initiator(models.Model):
         return self.name + " [has MAC address '" + self.mac_address + "']"
 
 
+@unique
+class TargetState(Enum):
+    OFFLINE = 0
+    ONLINE = 1
+    LOCKED = 2
+
+    @classmethod
+    def choices(cls):
+        members = inspect.getmembers(cls, lambda member: not (inspect.isroutine(member)))
+        properties = [member for member in members if member[0][:2] != '__' and member[0] not in ['name', 'value']]
+        choices = tuple([(str(property[1].value), property[0]) for property in properties])
+        return choices
+
+
 class Target(models.Model):
     name = models.CharField(max_length=20, null=False, blank=False)
     groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])

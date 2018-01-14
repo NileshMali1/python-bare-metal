@@ -40,26 +40,43 @@ class ISCSITarget(object):
             print(str(e))
         return None
 
-    def get_current_logical_unit_number(self):
+    def exists(self):
+        output = self._execute(["--op", "show"])
+        if output:
+            for line in output.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if "Target " + self.get_id() + ": " + self.get_name() in line:
+                    return True
+        return False
+
+    def get_logical_unit_number(self, device_path):
         output = self._execute(["--op", "show"])
         lun = None
+        device_found = False
         if output:
             target_found = False
             for line in output.split("\n"):
                 line = line.strip()
                 if not line:
                     continue
-                if "Target "+self.get_id()+": "+self.get_name() in line:
-                    target_found = True
+                if "Target " in line:
+                    target_found = True if\
+                        not target_found and "Target "+self.get_id()+": "+self.get_name() in line\
+                        else False
                     continue
-                if target_found:
-                    if "Target " in line:
-                        target_found = False
-                        continue
-                    match = re.search(r"^LUN: (\d+)$", line)
-                    if match:
-                        lun = int(match.group(1))
-        return lun
+                if not target_found:
+                    continue
+                match = re.search(r"^LUN: (\d+)$", line)
+                if match:
+                    lun = match.group(1)
+                    continue
+                if lun and target_found:
+                    if "Backing store path: "+device_path in line:
+                        device_found = True
+                        break
+        return (lun, device_found) if device_found else (str(int(lun)+1), device_found)
 
     def get_details(self):
         output = self._execute(["--op", "show", "--tid", self._id])
@@ -70,21 +87,18 @@ class ISCSITarget(object):
     def add(self):
         output = self._execute(["--op", "new", "--tid", self._id, "--targetname", self._name])
         if output:
-            print(output)
             return False
         return True
 
     def remove(self):
         output = self._execute(["--op", "delete", "--tid", self._id, "--force"])
         if output:
-            print(output)
             return False
         return True
 
-    def attach_logical_unit(self, block_device_path):
-        self._logical_unit_number = str(self.get_current_logical_unit_number() + 1)
+    def attach_logical_unit(self, block_device_path, lun):
         output = self._execute(
-            ["--op", "new", "--tid", self._id, "--lun", self._logical_unit_number,
+            ["--op", "new", "--tid", self._id, "--lun", lun,
              "--backing-store", block_device_path], "logicalunit"
         )
         if output:
@@ -92,8 +106,8 @@ class ISCSITarget(object):
             return False
         return True
 
-    def detach_logical_unit(self):
-        output = self._execute(["--op", "delete", "--tid", self._id, "--lun", self._logical_unit_number], "logicalunit")
+    def detach_logical_unit(self, lun):
+        output = self._execute(["--op", "delete", "--tid", self._id, "--lun", lun], "logicalunit")
         if output:
             print(output)
             return False

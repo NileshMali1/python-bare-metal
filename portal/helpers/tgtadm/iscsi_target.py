@@ -12,7 +12,6 @@ class ISCSITarget(object):
     def __init__(self, tid, tname):
         self._id = str(tid)
         self._name = self.get_iscsi_qualified_name(tname)
-        self._logical_unit_number = None
 
     def get_id(self):
         return self._id
@@ -102,14 +101,12 @@ class ISCSITarget(object):
              "--backing-store", block_device_path], "logicalunit"
         )
         if output:
-            print(output)
             return False
         return True
 
     def detach_logical_unit(self, lun):
         output = self._execute(["--op", "delete", "--tid", self._id, "--lun", lun], "logicalunit")
         if output:
-            print(output)
             return False
         return True
 
@@ -119,7 +116,6 @@ class ISCSITarget(object):
         by_value = initiator.get_address() if by == "address" else initiator.get_name()
         output = self._execute(["--op", operation, "--tid", self._id, "--initiator-"+by, by_value])
         if output:
-            print(output)
             return False
         return True
 

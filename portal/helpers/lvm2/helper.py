@@ -40,7 +40,7 @@ class Helper(object):
     def exec_dd(source, destination):
         if not (source and destination):
             return None
-        output = subprocess.check_output(["dd", "if="+source, "of="+destination, "bs=4M"])
+        output = subprocess.check_output(["dd", "if="+source, "of="+destination, "bs=4M"], stderr=subprocess.STDOUT)
         if output:
             return output.decode("utf-8")
         return None

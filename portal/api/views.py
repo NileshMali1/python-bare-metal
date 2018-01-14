@@ -37,42 +37,54 @@ class TargetViewSet(viewsets.ModelViewSet):
     #    raise ParseError("Unable to partially update")
 
     @detail_route(methods=["PATCH"])
-    def dump(self, request, pk=None):
-        if request.data.__contains__('to_file'):
-            target = Target.objects.get(pk=pk)
-            if target:
-                vg = VolumeGroup(target.group)
-                if vg:
-                    lv = vg.get_logical_volumes(target.name)
-                    if lv and lv.dump_to_image(request.data.__getitem__('to_file')):
-                        return Response("Successfully dumped the disk to file", status=status.HTTP_200_OK)
-        return Response("Please provide valid file path as value to 'to_file' key in json format",
-                        status=status.HTTP_400_BAD_REQUEST)
-
-    @detail_route(methods=["PATCH"])
-    def restore(self, request, pk=None):
-        print(pk)
-        print(repr(request.data))
+    def operate(self, request, pk=None):
+        if not pk:
+            raise ParseError("PK Not found")
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        vg = VolumeGroup(target.group)
+        if not vg:
+            raise ParseError("Target group not found")
+        lv = vg.get_logical_volumes(target.name)
+        if not lv:
+            raise ParseError("Target disk not found")
+        if request.data.__contains__('operation') and request.data.__getitem__('operation'):
+            if request.data.__getitem__('operation').lower() in ["dump", "restore"]:
+                if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
+                    operation = request.data.__getitem__('operation')
+                    if operation.lower() == "dump":
+                        op = lv.dump_to_image(request.data.__getitem__('local_file'))
+                    else:
+                        op = lv.restore_from_image(request.data.__getitem__('local_file'))
+                    if op:
+                        message = "Successfully %sed the disk. Details: %s" % (operation, op)
+                        status_code = status.HTTP_200_OK
+                    else:
+                        message = "Failed to %s the disk. Details: %s" % (operation, op)
+                        status_code = status.HTTP_417_EXPECTATION_FAILED
+                    return Response(message, status=status_code)
+                return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+            return Response("Unsupported operation", status=status.HTTP_501_NOT_IMPLEMENTED)
+        return Response("No operation specified", status=status.HTTP_400_BAD_REQUEST)
 
     def create(self, request):
         if request.data.__contains__('name') and request.data.__contains__('group'):
             vg = VolumeGroup(request.data.__getitem__('group'))
-            size = request.data.__getitem__('size_in_gb') if request.data.__contains__('size_in_gb') else 20.0
+            size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 20.0
             if vg and vg.create_logical_volume(request.data.__getitem__('name'), size):
                 target, created = Target.objects.get_or_create(name=request.data.__getitem__('name'),
                                                                 group=request.data.__getitem__('group'))
                 if created:
-                    print(size)
-                    print(type(size))
-                    target.size_in_gb = float(size)
-                    if request.data.__contains__('initiator'):
-                        target.initiator = Initiator.objects.get(pk=url_resolver(request.data.__getitem__('initiator')))
-                    if request.data.__contains__('boot'):
+                    target.size_in_gb = size
+                    if request.data.__contains__('boot') and request.data.__getitem__('root'):
                         boot = True if str(request.data.__getitem__('boot')).lower() == "true" else False
                         target.boot = boot
-                    if request.data.__contains__('active'):
+                    if request.data.__contains__('active') and request.data.__getitem__('active'):
                         active = True if str(request.data.__getitem__('active')).lower() == "true" else False
                         target.active = active
+                    if request.data.__contains__('initiator') and request.data.__getitem__('initiator'):
+                        target.initiator = Initiator.objects.get(pk=url_resolver(request.data.__getitem__('initiator')))
                     target.save()
                 return Response(TargetSerializer(instance=target, context={'request': request}).data)
             raise ParseError("Resource could not be created. %s" % status)

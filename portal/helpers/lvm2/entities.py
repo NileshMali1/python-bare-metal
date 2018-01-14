@@ -244,22 +244,25 @@ class VolumeGroup(object):
             return True
         return False
 
-    def create_logical_volume(self, lv_name, size=10.0, unit="GiB"):
-        output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
-        if output and 'Logical volume "' + lv_name + '" created' in output:
-            return True
+    def create_logical_volume(self, lv_name, size, unit="GiB"):
+        if lv_name and size:
+            output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
+            if output and 'Logical volume "' + lv_name + '" created' in output:
+                return True
         return False
 
     def remove_logical_volume(self, lv_name):
-        output = Helper.exec(["lvremove", "--force", self._vg_name+'/'+lv_name])
-        if output and 'Logical volume "' + lv_name + '" successfully removed' in output:
-            return True
+        if lv_name:
+            output = Helper.exec(["lvremove", "--force", self._vg_name+'/'+lv_name])
+            if output and 'Logical volume "' + lv_name + '" successfully removed' in output:
+                return True
         return False
 
-    def rename_logical_volume(self, old_lv_name, new_lv_name):
-        output = Helper.exec(["lvrename", self._vg_name, old_lv_name, new_lv_name])
-        if output and "Renamed \""+old_lv_name+"\" to \""+new_lv_name+"\" in volume group \""+self._vg_name+"\"":
-            return True
+    def rename_logical_volume(self, lv_name, new_lv_name):
+        if lv_name and new_lv_name:
+            output = Helper.exec(["lvrename", self._vg_name, lv_name, new_lv_name])
+            if output and "Renamed \""+lv_name+"\" to \""+new_lv_name+"\" in volume group \""+self._vg_name+"\"":
+                return True
         return False
 
     def get_logical_volumes(self, name=None):
@@ -351,16 +354,10 @@ class LogicalVolume(Disk):
         return VolumeGroup(self._filter_info("VG Name"))
 
     def dump_to_image(self, destination_path):
-        output = Helper.exec_dd(self.get_path(), destination_path)
-        if output:
-            return True
-        return False
+        return Helper.exec_dd(self.get_path(), destination_path)
 
     def restore_from_image(self, source_path):
-        output = Helper.exec_dd(source_path, self.get_path())
-        if output:
-            return True
-        return False
+        return Helper.exec_dd(source_path, self.get_path())
 
     def get_snapshots(self):
         snapshots = self._filter_info("source_of")

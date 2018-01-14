@@ -27,10 +27,11 @@ class Helper(object):
         return None
 
     @staticmethod
-    def exec_fdisk(device):
-        if not device:
-            return None
-        output = subprocess.check_output(["fdisk", "-u=sectors", "--bytes", "-l", device])
+    def exec_fdisk(device=None):
+        if device:
+            output = subprocess.check_output(["fdisk", "-u=sectors", "--bytes", "-l", device])
+        else:
+            output = subprocess.check_output(["fdisk", "-l"])
         if output:
             return output.decode("utf-8")
         return None

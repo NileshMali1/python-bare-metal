@@ -1,11 +1,8 @@
-from django.db import models
-from lvm2.entities import Disk, Partition, PhysicalVolume, VolumeGroup, LogicalVolume, Snapshot
-from tgtadm.iscsi_target import ISCSITarget
-from enum import Enum, unique
 import inspect
+from enum import Enum, unique
+from django.db import models
+from lvm2.entities import VolumeGroup
 
-
-# Create your models here.
 
 @unique
 class InitiatorMode(Enum):
@@ -14,29 +11,35 @@ class InitiatorMode(Enum):
 
     @classmethod
     def choices(cls):
-        # get all members of the class
         members = inspect.getmembers(cls, lambda member: not (inspect.isroutine(member)))
-        # filter down to just properties
-        properties = [member for member in members if not (member[0][:2] == '__')]
-        # format into django choice tuple
+        properties = [member for member in members if member[0][:2] != '__' and member[0] not in ['name', 'value']]
         choices = tuple([(str(property[1].value), property[0]) for property in properties])
         return choices
 
 
 class Initiator(models.Model):
-    """A machine booting into its NIC's PXE/iPXE boot program, is an initiator"""
-
-    mac_address = models.CharField(max_length=17, null=False, blank=False)
-    name = models.CharField(max_length=20, null=False, blank=False)
+    mac_address = models.CharField(max_length=17, null=False, blank=False, unique=True)
+    name = models.CharField(max_length=20, null=False, blank=False, unique=True)
     mode = models.CharField(max_length=1, choices=InitiatorMode.choices(), default=InitiatorMode.AUTOMATIC.value,
                             null=False, blank=False)
+    last_initiated = models.DateTimeField()
+
+    def __str__(self):
+        return self.name + " [has MAC address '" + self.mac_address + "']"
 
 
 class Target(models.Model):
-    """A disk instance"""
+    name = models.CharField(max_length=20, null=False, blank=False)
+    groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
+    group = models.CharField(max_length=20, choices=groups)
+    size_in_gb = models.FloatField(default=20.0)
+    boot = models.BooleanField(default=False)
+    active = models.BooleanField(default=False)
+    initiator = models.ForeignKey(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="targets")
 
-    vgs = tuple([(vgroup.get_name(), vgroup.get_name()) for vgroup in VolumeGroup.get_all()])
+    class Meta:
+        unique_together = ('name', 'group')
 
-    volume_group = models.CharField(max_length=20, choices=vgs)
-    logical_volume = models.CharField(max_length=20, null=False, blank=False)
-    snapshot = models.CharField()
+    def __str__(self):
+        if self.initiator:
+            return self.name + " [is target of '" + self.initiator.name + "']"

@@ -1,6 +1,7 @@
-from lvm2.helper import Helper
 import os
 import re
+
+from lvm2.helper import Helper
 
 
 class Disk(object):
@@ -9,6 +10,20 @@ class Disk(object):
     def __init__(self, device_path):
         self._device_path = device_path
         self._sector_size = None
+
+    @staticmethod
+    def get_all():
+        fd_output = Helper.exec_fdisk()
+        disks = []
+        if fd_output:
+            for line in fd_output.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.search(r"^Disk\s+(\\dev\\sd[a-z]):", line)
+                if match:
+                    disks.append(match.group(1))
+        return disks
 
     def get_path(self):
         return self._device_path
@@ -229,6 +244,51 @@ class VolumeGroup(object):
             return True
         return False
 
+    def create_logical_volume(self, lv_name, size=10.0, unit="GiB"):
+        output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
+        if output and 'Logical volume "' + lv_name + '" created' in output:
+            return True
+        return False
+
+    def remove_logical_volume(self, lv_name):
+        output = Helper.exec(["lvremove", "--force", self._vg_name+'/'+lv_name])
+        if output and 'Logical volume "' + lv_name + '" successfully removed' in output:
+            return True
+        return False
+
+    def rename_logical_volume(self, old_lv_name, new_lv_name):
+        output = Helper.exec(["lvrename", self._vg_name, old_lv_name, new_lv_name])
+        if output and "Renamed \""+old_lv_name+"\" to \""+new_lv_name+"\" in volume group \""+self._vg_name+"\"":
+            return True
+        return False
+
+    def get_logical_volumes(self, name=None):
+
+        def is_snapshot(lv_path):
+            sub_output = Helper.exec(["lvs", lv_path])
+            if sub_output:
+                for sub_line in sub_output.split("\n"):
+                    sub_line = sub_line.strip()
+                    if not sub_line or self._vg_name not in sub_line:
+                        continue
+                    sub_columns = sub_line.split(" ")
+                    return True if sub_columns[2].lower().startswith("s") else False
+            return None
+
+        output = Helper.exec(["lvdisplay", "-c"])
+        lvs = []
+        if output:
+            for line in output.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                columns = line.split(":")
+                if name and name not in columns[0]:
+                    continue
+                if columns[1] == self._vg_name and not is_snapshot(columns[0]):
+                    lvs.append(LogicalVolume(columns[0]))
+        return lvs[0] if len(lvs) == 1 else lvs
+
     def include_physical_volume(self, pv):
         output = Helper.exec(["vgextend", self._vg_name, pv.get_name()])
         if output:
@@ -241,37 +301,7 @@ class VolumeGroup(object):
             return True
         return False
 
-    def create_logical_volume(self, lv_name, size=10.0, unit="GiB"):
-        output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
-        if output and 'Logical volume "' + lv_name + '" created' in output:
-            return True
-        return False
-
-    def _is_snapshot(self, lv_path):
-        output = Helper.exec(["lvs", lv_path])
-        if output:
-            for line in output.split("\n"):
-                if self._vg_name not in line:
-                    continue
-                line = line.strip()
-                columns = line.split(" ")
-                return True if columns[2].lower().startswith("s") else False
-        return None
-
-    def get_logical_volumes(self):
-        output = Helper.exec(["lvdisplay", "-c"])
-        lvs = []
-        if output:
-            for line in output.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                columns = line.split(":")
-                if columns[1] == self._vg_name and not self._is_snapshot(columns[0]):
-                    lvs.append(LogicalVolume(columns[0]))
-        return lvs
-
-    def get_physical_volumes(self):
+    def get_physical_volumes(self, name=None):
         output = Helper.exec(["pvdisplay", "-c"])
         pvs = []
         if output:
@@ -280,9 +310,11 @@ class VolumeGroup(object):
                 if not line:
                     continue
                 columns = line.split(":")
+                if name and name not in columns[0]:
+                    continue
                 if columns[1] == self._vg_name:
                     pvs.append(PhysicalVolume(columns[0]))
-        return pvs
+        return pvs[0] if len(pvs) == 1 else pvs
 
 
 class LogicalVolume(Disk):
@@ -305,12 +337,6 @@ class LogicalVolume(Disk):
             else:
                 return None
         return info
-
-    def get_snapshots(self):
-        snapshots = self._filter_info("source_of")
-        if snapshots:
-            return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
-        return None
 
     def get_name(self):
         return self._filter_info("LV Name")
@@ -336,26 +362,16 @@ class LogicalVolume(Disk):
             return True
         return False
 
-    def rename(self, new_name):
-        old_name = self.get_name()
-        vg = self.get_volume_group()
-        output = Helper.exec(["lvrename", vg.get_name(), old_name, new_name])
-        if output and "Renamed \""+old_name+"\" to \""+new_name+"\" in volume group \""+vg.get_name()+"\"":
-            self._device_path = self._device_path.replace(old_name, new_name)
-            return True
-        return False
+    def get_snapshots(self):
+        snapshots = self._filter_info("source_of")
+        if snapshots:
+            return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
+        return None
 
     def create_snapshot(self, snapshot_name, size=5.0, unit="GiB"):
         command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._device_path, "--size", str(size)+unit]
         output = Helper.exec(command)
         if output and 'Logical volume "' + snapshot_name + '" created' in output:
-            return True
-        return False
-
-    def remove(self):
-        output = Helper.exec(["lvremove", "--force", self._device_path])
-        if output and 'Logical volume "' + os.path.basename(self._device_path) + '" successfully removed' in output:
-            self._device_path = None
             return True
         return False
 

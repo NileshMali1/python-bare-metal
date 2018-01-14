@@ -11,7 +11,7 @@ class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class TargetSerializer(serializers.HyperlinkedModelSerializer):
-    snapshots = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="snapshottarget-detail")
+    snapshots = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="snapshot-detail")
 
     class Meta:
         model = Target

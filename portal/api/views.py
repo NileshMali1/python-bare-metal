@@ -2,8 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ParseError
 from rest_framework.decorators import detail_route
-from api.models import Initiator, Target
-from api.serializers import InitiatorSerializer, TargetSerializer
+from api.models import Initiator, Target, Snapshot
+from api.serializers import InitiatorSerializer, TargetSerializer, SnapshotSerializer
 from django.urls import resolve
 from urllib.parse import urlparse
 from helpers.lvm2.entities import VolumeGroup
@@ -145,5 +145,36 @@ class TargetViewSet(viewsets.ModelViewSet):
             vg = VolumeGroup(target.group)
             if vg and vg.remove_logical_volume(target.name):
                 target.delete()
+                return Response(status=status.HTTP_204_NO_CONTENT)
+        raise ParseError("Could not delete resource for some reason")
+
+
+class SnapshotViewSet(viewsets.ModelViewSet):
+    queryset = Snapshot.objects.all()
+    serializer_class = SnapshotSerializer
+
+    def create(self, request):
+        if request.data.__contains__('name') and request.data.__contains__('target'):
+            target = Target.objects.get(pk=url_resolver(request.data.__getitem__('target')))
+            if not target:
+                raise ParseError("Target not found.")
+            lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+            size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 5.0
+            if lv and lv.create_snapshot(request.data.__getitem__('name'), size):
+                snapshot, created = Snapshot.objects.get_or_create(name=request.data.__getitem__('name'),
+                                                                target=target)
+                if created:
+                    snapshot.size_in_gb = size
+                    snapshot.save()
+                return Response(SnapshotSerializer(instance=snapshot, context={'request': request}).data)
+            raise ParseError("Resource could not be created. %s" % status)
+        raise ParseError("'name' & 'group' fields are required and should have valid data")
+
+    def destroy(self, request, pk=None):
+        snapshot = Snapshot.objects.get(pk=pk)
+        if snapshot:
+            lv = VolumeGroup(snapshot.target.group).get_logical_volumes(snapshot.target.name)
+            if lv and lv.remove_snapshot(snapshot.name):
+                snapshot.delete()
                 return Response(status=status.HTTP_204_NO_CONTENT)
         raise ParseError("Could not delete resource for some reason")

@@ -57,3 +57,12 @@ class Target(models.Model):
     def __str__(self):
         if self.initiator:
             return self.name + " [is target of '" + self.initiator.name + "']"
+
+
+class Snapshot(models.Model):
+    name = models.CharField(max_length=20, null=False, blank=False)
+    size_in_gb = models.FloatField(default=5.0)
+    target = models.ForeignKey(Target, on_delete=models.CASCADE, null=False, blank=False, related_name="snapshots")
+
+    class Meta:
+        unique_together = ('name', 'target')

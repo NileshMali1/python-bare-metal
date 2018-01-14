@@ -359,17 +359,46 @@ class LogicalVolume(Disk):
     def restore_from_image(self, source_path):
         return Helper.exec_dd(source_path, self.get_path())
 
-    def get_snapshots(self):
+    def get_snapshots(self, snap_name=None):
         snapshots = self._filter_info("source_of")
         if snapshots:
-            return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
+            if snap_name:
+                return [Snapshot(self._device_path.replace(self.get_name(), snapshot))
+                        for snapshot in snapshots if snapshot == snap_name]
+            else:
+                return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
         return None
 
-    def create_snapshot(self, snapshot_name, size=5.0, unit="GiB"):
+    def create_snapshot(self, snapshot_name, size, unit="GiB"):
         command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._device_path, "--size", str(size)+unit]
         output = Helper.exec(command)
         if output and 'Logical volume "' + snapshot_name + '" created' in output:
             return True
+        return False
+
+    def remove_snapshot(self, snap_name):
+        if snap_name:
+            output = Helper.exec(["lvremove", "--force", self.get_volume_group().get_name()+'/'+snap_name])
+            if output and 'Logical volume "' + snap_name + '" successfully removed' in output:
+                return True
+        return False
+
+    def revert_to_snapshot(self, snap_name):
+        snap = self.get_snapshots(snap_name)
+        if not snap:
+            return False
+        (size, unit) = snap.get_size()
+        if self.remove_snapshot(snap_name):
+            if self.create_snapshot(snap_name, size, unit):
+                return True
+        return False
+
+    def rename_snapshot(self, snap_name, new_snap_name):
+        if snap_name and new_snap_name:
+            output = Helper.exec(["lvrename", self.get_volume_group().get_name(), snap_name, new_snap_name])
+            if output and "Renamed \"" + snap_name + "\" to \"" + new_snap_name + "\" in volume group \"" + \
+                    self.get_volume_group().get_name()+"\"":
+                return True
         return False
 
 
@@ -390,19 +419,17 @@ class Snapshot(LogicalVolume):
                 return LogicalVolume(self._device_path.replace(self.get_name(), matcher.group(1)))
         return None
 
-    def recreate(self, snapshot_name, lv_path, size=5.0, unit="GiB"):
-        command = ["lvcreate", "--name", snapshot_name, "--snapshot", lv_path, "--size", str(size)+unit]
-        output = Helper.exec(command)
-        if output and 'Logical volume "' + snapshot_name + '" created' in output:
-            self._device_path = lv_path.replace(os.path.basename(lv_path), snapshot_name)
-            return True
-        return False
+    def get_snapshots(self, snap_name=None):
+        raise Exception("Not applicable since snapshot(s) of snapshot is not supported.")
 
-    def revert(self):
-        snap_name = self.get_name()
-        parent = self.get_parent()
-        (size, unit) = self.get_size()
-        if self.remove():
-            if self.recreate(snap_name, parent.get_path(), size, unit):
-                return True
-        return False
+    def create_snapshot(self, snapshot_name, size, unit="GiB"):
+        raise Exception("Not applicable since snapshot(s) of snapshot is not supported.")
+
+    def remove_snapshot(self, snap_name):
+        raise Exception("Not applicable since snapshot(s) of snapshot is not supported.")
+
+    def revert_to_snapshot(self, snap_name):
+        raise Exception("Not applicable since snapshot(s) of snapshot is not supported.")
+
+    def rename_snapshot(self, snap_name, new_snap_name):
+        raise Exception("Not applicable since snapshot(s) of snapshot is not supported.")

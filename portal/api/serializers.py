@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import Initiator, Target
+from api.models import Initiator, Target, Snapshot
 
 
 class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
@@ -11,6 +11,14 @@ class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class TargetSerializer(serializers.HyperlinkedModelSerializer):
+    snapshots = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="snapshottarget-detail")
+
     class Meta:
         model = Target
+        fields = '__all__'
+
+
+class SnapshotSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = Snapshot
         fields = '__all__'

@@ -150,7 +150,8 @@ class TargetViewSet(viewsets.ModelViewSet):
         if request.data.__contains__('name') and request.data.__contains__('group'):
             vg = VolumeGroup(request.data.__getitem__('group'))
             size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 20.0
-            if vg and vg.create_logical_volume(request.data.__getitem__('name'), size):
+            if vg and not vg.contains_logical_volume(request.data.__getitem__('name')) and\
+                    vg.create_logical_volume(request.data.__getitem__('name'), size):
                 target, created = Target.objects.get_or_create(name=request.data.__getitem__('name'),
                                                                 group=request.data.__getitem__('group'))
                 if created:
@@ -172,7 +173,7 @@ class TargetViewSet(viewsets.ModelViewSet):
         target = Target.objects.get(pk=pk)
         if target:
             vg = VolumeGroup(target.group)
-            if vg and vg.remove_logical_volume(target.name):
+            if vg and vg.contains_logical_volume(target.name) and vg.remove_logical_volume(target.name):
                 target.delete()
                 return Response(status=status.HTTP_204_NO_CONTENT)
         raise ParseError("Could not delete resource for some reason")
@@ -189,7 +190,8 @@ class SnapshotViewSet(viewsets.ModelViewSet):
                 raise ParseError("Target not found.")
             lv = VolumeGroup(target.group).get_logical_volumes(target.name)
             size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 5.0
-            if lv and lv.create_snapshot(request.data.__getitem__('name'), size):
+            if lv and not lv.contains_snapshot(request.data.__getitem__('name')) and\
+                    lv.create_snapshot(request.data.__getitem__('name'), size):
                 snapshot, created = Snapshot.objects.get_or_create(name=request.data.__getitem__('name'),
                                                                 target=target)
                 if created:
@@ -203,7 +205,7 @@ class SnapshotViewSet(viewsets.ModelViewSet):
         snapshot = Snapshot.objects.get(pk=pk)
         if snapshot:
             lv = VolumeGroup(snapshot.target.group).get_logical_volumes(snapshot.target.name)
-            if lv and lv.remove_snapshot(snapshot.name):
+            if lv and lv.contains_snapshot(snapshot.name) and lv.remove_snapshot(snapshot.name):
                 snapshot.delete()
                 return Response(status=status.HTTP_204_NO_CONTENT)
         raise ParseError("Could not delete resource for some reason")

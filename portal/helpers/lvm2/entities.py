@@ -244,6 +244,18 @@ class VolumeGroup(object):
             return True
         return False
 
+    def contains_logical_volume(self, lv_name):
+        output = Helper.exec(["lvdisplay", "-c"])
+        if output:
+            for line in output.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                columns = line.split(":")
+                if lv_name in columns[0] and columns[1] == self._vg_name:
+                    return True
+        return False
+
     def create_logical_volume(self, lv_name, size, unit="GiB"):
         if lv_name and size:
             output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
@@ -358,6 +370,12 @@ class LogicalVolume(Disk):
 
     def restore_from_image(self, source_path):
         return Helper.exec_dd(source_path, self.get_path())
+
+    def contains_snapshot(self, snap_name):
+        snapshots = self._filter_info("source_of")
+        if snapshots and snap_name in snapshots:
+            return True
+        return False
 
     def get_snapshots(self, snap_name=None):
         snapshots = self._filter_info("source_of")

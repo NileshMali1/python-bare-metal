@@ -50,7 +50,7 @@ class Target(models.Model):
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     active_snapshot = models.ForeignKey('Snapshot', on_delete=models.SET_NULL, null=True, blank=False,
-                                        related_name='active', limit_choices_to={'target_name': 'xyz'})
+                                        related_name='active')
     initiator = models.ForeignKey(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="targets")
 
     class Meta:

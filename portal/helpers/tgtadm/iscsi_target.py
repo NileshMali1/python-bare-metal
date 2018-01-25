@@ -110,17 +110,21 @@ class ISCSITarget(object):
             return False
         return True
 
-    def _bind_or_unbind(self, operation, initiator, by="address"):
+    def _bind_or_unbind(self, operation, initiator=None, by="address"):
         if by not in ("address", "name"):
             by = "name"
-        by_value = initiator.get_address() if by == "address" else initiator.get_name()
+        if initiator:
+            by_value = initiator.get_address() if by == "address" else initiator.get_name()
+        else:
+            by_value = "ALL"
+            by = "address"
         output = self._execute(["--op", operation, "--tid", self._id, "--initiator-"+by, by_value])
         if output:
             return False
         return True
 
-    def bind_to_initiator(self, initiator, by="address"):
+    def bind_to_initiator(self, initiator=None, by="address"):
         return self._bind_or_unbind("bind", initiator, by)
 
-    def unbind_from_initiator(self, initiator, by="address"):
+    def unbind_from_initiator(self, initiator=None, by="address"):
         return self._bind_or_unbind("unbind", initiator, by)

@@ -3,3 +3,4 @@
 test.py
 db.sqlite3
 migrations/
+bmenv/

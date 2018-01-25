@@ -80,6 +80,8 @@ class TargetViewSet(viewsets.ModelViewSet):
             (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and not exists:
                 iscsi_target.attach_logical_unit(disk_path, lun)
+        if iscsi_target.exists():
+            iscsi_target.bind_to_initiator()
 
     @detail_route(methods=["PATCH"])
     def deactivate(self, request, pk):
@@ -96,6 +98,8 @@ class TargetViewSet(viewsets.ModelViewSet):
         else:
             disk_path = lv.get_path()
         iscsi_target = ISCSITarget(pk, target.name)
+        if iscsi_target.exists():
+            iscsi_target.unbind_from_initiator()
         if iscsi_target.exists():
             (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and exists:

@@ -80,7 +80,6 @@ class TargetViewSet(viewsets.ModelViewSet):
             if lun and exists:
                 iscsi_target.detach_logical_unit(lun)
 
-
     @detail_route(methods=["PATCH"])
     def activate(self, request, pk):
         if not pk:
@@ -141,61 +140,67 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         logical_unit = LogicalUnit.objects.get(pk=pk)
         if not logical_unit:
             return None
-        return VolumeGroup(logical_unit.group).get_logical_volumes(logical_unit.name)
+        virtual_group = VolumeGroup(logical_unit.group)
+        if not virtual_group:
+            None
+        logical_volumes = virtual_group.get_logical_volumes(logical_unit.name)
+        return logical_volumes[0] if logical_volumes else None
+
+    @staticmethod
+    def get_active_snapshots(pk):
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        if not logical_unit:
+            return None
+        snapshots = logical_unit.snapshots.filter(active=True)
+        return snapshots[0] if snapshots else None
 
     @detail_route(methods=["PATCH"])
     def revert(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
+        if request.data.__contains__('snapshot') and request.data.__getitem__('snapshot'):
+            snapshot_name = request.data.__getitem__('snapshot')
+        else:
+            snapshot = self.get_active_snapshots(pk)
+            snapshot_name = snapshot.name if snapshot else None
+        if not snapshot_name:
+            return Response("Could not find any active snapshot to revert to.", status=status.HTTP_417_EXPECTATION_FAILED)
         logical_volume = self.get_logical_volume(pk)
         if not logical_volume:
             raise ParseError("Logical volume not found")
-        if request.data.__contains__('snapshot') and request.data.__getitem__('snapshot'):
-            snapshots = logical_volume.get_snapshots(request.data.__getitem__('snapshot'))
-        else:
-            snapshots = logical_volume.get_snapshots()
-        if snapshots:
-            snap_name = snapshots[0].get_name()
-            if logical_volume.revert_to_snapshot(snap_name):
-                return Response("Successfully reverted to snapshot '%s'" % snap_name, status=status.HTTP_200_OK)
-            return Response("Could not revert to snapshot '%s'" % snap_name, status=status.HTTP_417_EXPECTATION_FAILED)
-        return Response("Could not find any snapshot to revert to.", status=status.HTTP_417_EXPECTATION_FAILED)
+        if logical_volume.revert_to_snapshot(snapshot_name):
+            return Response("Successfully reverted to snapshot '%s'" % snapshot_name, status=status.HTTP_200_OK)
+        return Response("Could not revert to snapshot '%s'" % snapshot_name, status=status.HTTP_417_EXPECTATION_FAILED)
 
     @detail_route(methods=["PATCH"])
     def dump(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
         logical_volume = self.get_logical_volume(pk)
         if not logical_volume:
             raise ParseError("Logical volume not found")
-        if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
-            op = logical_volume.dump_to_image(request.data.__getitem__('local_file'))
-            if op:
-                message = "Successfully dumped the disk. Details: %s" % op
-                status_code = status.HTTP_200_OK
-            else:
-                message = "Failed to dump the disk. Details: %s" % op
-                status_code = status.HTTP_417_EXPECTATION_FAILED
-            return Response(message, status=status_code)
-        return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+        if not request.data.__contains__('local_file') or not request.data.__getitem__('local_file'):
+            return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+        output = logical_volume.dump_to_image(request.data.__getitem__('local_file'))
+        if output:
+            message = "Successfully dumped the disk. Details: %s" % output
+            status_code = status.HTTP_200_OK
+        else:
+            message = "Failed to dump the disk. Details: %s" % output
+            status_code = status.HTTP_417_EXPECTATION_FAILED
+        return Response(message, status=status_code)
 
     @detail_route(methods=["PATCH"])
-    def restore(self, request, pk=None):
-        if not pk:
-            raise ParseError("PK Not found")
+    def restore(self, request, pk):
         logical_volume = self.get_logical_volume(pk)
         if not logical_volume:
             raise ParseError("Target disk not found")
-        if request.data.__contains__('local_file') and request.data.__getitem__('local_file'):
-            op = logical_volume.restore_from_image(request.data.__getitem__('local_file'))
-            if op:
-                message = "Successfully restored the disk. Details: %s" % op
-                status_code = status.HTTP_200_OK
-            else:
-                message = "Failed to restore the disk. Details: %s" % op
-                status_code = status.HTTP_417_EXPECTATION_FAILED
-            return Response(message, status=status_code)
-        return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+        if not request.data.__contains__('local_file') or not request.data.__getitem__('local_file'):
+            return Response("No valid 'local_file' key found", status=status.HTTP_400_BAD_REQUEST)
+        output = logical_volume.restore_from_image(request.data.__getitem__('local_file'))
+        if output:
+            message = "Successfully restored the disk. Details: %s" % output
+            status_code = status.HTTP_200_OK
+        else:
+            message = "Failed to restore the disk. Details: %s" % output
+            status_code = status.HTTP_417_EXPECTATION_FAILED
+        return Response(message, status=status_code)
 
     def create(self, request):
         if not (request.data.__contains__('name') and request.data.__contains__('group')):
@@ -208,7 +213,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 20.0
         if vg.create_logical_volume(request.data.__getitem__('name'), size):
             logical_unit, created = LogicalUnit.objects.get_or_create(name=request.data.__getitem__('name'),
-                                                                group=request.data.__getitem__('group'))
+                                                                      group=request.data.__getitem__('group'))
             if created:
                 logical_unit.size_in_gb = size
                 if request.data.__contains__('boot') and request.data.__getitem__('root'):
@@ -223,7 +228,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             return Response(LogicalUnitSerializer(instance=logical_unit, context={'request': request}).data)
         raise ParseError("Logical unit could not be created. %s" % status)
 
-    def destroy(self, request, pk=None):
+    def destroy(self, request, pk):
         logical_unit = LogicalUnit.objects.get(pk=pk)
         if logical_unit:
             vg = VolumeGroup(logical_unit.group)
@@ -237,15 +242,23 @@ class SnapshotViewSet(viewsets.ModelViewSet):
     queryset = Snapshot.objects.all()
     serializer_class = SnapshotSerializer
 
+    @staticmethod
+    def get_logical_volume(vgroup_name, lv_name):
+        volume_group = VolumeGroup(vgroup_name)
+        if not volume_group:
+            return None
+        logical_volumes = volume_group.get_logical_volumes(lv_name)
+        return logical_volumes[0] if logical_volumes else None
+
     def create(self, request):
         if request.data.__contains__('name') and request.data.__contains__('logical_unit'):
             logical_unit = LogicalUnit.objects.get(pk=url_resolver(request.data.__getitem__('logical_unit')))
             if not logical_unit:
                 raise ParseError("Logical unit not found.")
-            lv = VolumeGroup(logical_unit.group).get_logical_volumes(logical_unit.name)
+            logical_volume = self.get_logical_volume(logical_unit.group, logical_unit.name)
             size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 5.0
-            if lv and not lv.contains_snapshot(request.data.__getitem__('name')) and\
-                    lv.create_snapshot(request.data.__getitem__('name'), size):
+            if logical_volume and not logical_volume.contains_snapshot(request.data.__getitem__('name')) and \
+                    logical_volume.create_snapshot(request.data.__getitem__('name'), size):
                 snapshot, created = Snapshot.objects.get_or_create(name=request.data.__getitem__('name'),
                                                                    logical_unit=logical_unit)
                 if created:
@@ -258,8 +271,9 @@ class SnapshotViewSet(viewsets.ModelViewSet):
     def destroy(self, request, pk=None):
         snapshot = Snapshot.objects.get(pk=pk)
         if snapshot:
-            lv = VolumeGroup(snapshot.logical_unit.group).get_logical_volumes(snapshot.logical_unit.name)
-            if lv and lv.contains_snapshot(snapshot.name) and lv.remove_snapshot(snapshot.name):
+            logical_volume = self.get_logical_volume(snapshot.logical_unit.group, snapshot.logical_unit.name)
+            if logical_volume and logical_volume.contains_snapshot(snapshot.name) and\
+                    logical_volume.remove_snapshot(snapshot.name):
                 snapshot.delete()
                 return Response(status=status.HTTP_204_NO_CONTENT)
         raise ParseError("Could not delete resource for some reason")

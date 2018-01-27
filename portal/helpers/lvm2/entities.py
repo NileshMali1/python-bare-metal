@@ -302,7 +302,7 @@ class VolumeGroup(object):
                     continue
                 if columns[1] == self._vg_name and not is_snapshot(columns[0]):
                     lvs.append(LogicalVolume(columns[0]))
-        return lvs[0] if len(lvs) == 1 else lvs
+        return lvs
 
     def include_physical_volume(self, pv):
         output = Helper.exec(["vgextend", self._vg_name, pv.get_name()])
@@ -402,10 +402,10 @@ class LogicalVolume(Disk):
         return False
 
     def revert_to_snapshot(self, snap_name):
-        snap = self.get_snapshots(snap_name)
-        if not snap:
+        snaps = self.get_snapshots(snap_name)
+        if not snaps:
             return False
-        (size, unit) = snap[0].get_size()
+        (size, unit) = snaps[0].get_size()
         if self.remove_snapshot(snap_name):
             if self.create_snapshot(snap_name, size, unit):
                 return True

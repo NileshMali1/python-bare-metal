@@ -68,13 +68,11 @@ class LogicalUnit(models.Model):
 
 
 class Snapshot(models.Model):
-    name = models.CharField(max_length=100, null=False, blank=False)
+    name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     size_in_gb = models.FloatField(default=5.0)
+    active = models.BooleanField(default=False)
     logical_unit = models.ForeignKey(LogicalUnit, on_delete=models.CASCADE, null=False, blank=False,
                                      related_name="snapshots")
-
-    class Meta:
-        unique_together = ('name', 'logical_unit')
 
     def __str__(self):
         return self.name + " [is snapshot of '" + self.logical_unit.name + "']"

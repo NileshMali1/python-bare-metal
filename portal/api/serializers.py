@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import Initiator, Target, Snapshot
+from api.models import Initiator, Target, LogicalUnit, Snapshot
 
 
 class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
@@ -11,10 +11,18 @@ class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class TargetSerializer(serializers.HyperlinkedModelSerializer):
-    snapshots = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="snapshot-detail")
+    logical_units = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="logicalunit-detail")
 
     class Meta:
         model = Target
+        fields = '__all__'
+
+
+class LogicalUnitSerializer(serializers.HyperlinkedModelSerializer):
+    snapshots = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="snapshot-detail")
+
+    class Meta:
+        model = LogicalUnit
         fields = '__all__'
 
 

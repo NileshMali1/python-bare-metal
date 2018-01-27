@@ -22,16 +22,14 @@ class Initiator(models.Model):
     name = models.CharField(max_length=20, null=False, blank=False, unique=True)
     mode = models.CharField(max_length=1, choices=InitiatorMode.choices(), default=InitiatorMode.AUTOMATIC.value,
                             null=False, blank=False)
-    active_target = models.ForeignKey('Target', on_delete=models.SET_NULL, null=True, blank=False,
-                                      related_name='use')
-    last_initiated = models.DateTimeField()
+    last_initiated = models.DateTimeField(null=True, blank=False)
 
     def __str__(self):
         return self.name + " [has MAC address '" + self.mac_address + "']"
 
 
 @unique
-class TargetState(Enum):
+class TargetStatus(Enum):
     OFFLINE = 0
     ONLINE = 1
     LOCKED = 2
@@ -45,18 +43,11 @@ class TargetState(Enum):
 
 
 class Target(models.Model):
-    name = models.CharField(max_length=20, null=False, blank=False)
-    groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
-    group = models.CharField(max_length=20, choices=groups)
-    size_in_gb = models.FloatField(default=20.0)
+    name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
-    active_snapshot = models.ForeignKey('Snapshot', on_delete=models.SET_NULL, null=True, blank=False,
-                                        related_name='active')
+    status = models.PositiveSmallIntegerField(choices=TargetStatus.choices(), default=TargetStatus.OFFLINE)
     initiator = models.ForeignKey(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="targets")
-
-    class Meta:
-        unique_together = ('name', 'group')
 
     def __str__(self):
         if self.initiator:
@@ -65,16 +56,25 @@ class Target(models.Model):
             return self.name
 
 
-class Snapshot(models.Model):
-    name = models.CharField(max_length=20, null=False, blank=False)
-    size_in_gb = models.FloatField(default=5.0)
-    target = models.ForeignKey(Target, on_delete=models.CASCADE, null=False, blank=False, related_name="snapshots")
-
-    class Meta:
-        unique_together = ('name', 'target')
+class LogicalUnit(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False, unique=True)
+    groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
+    group = models.CharField(max_length=20, choices=groups)
+    size_in_gb = models.FloatField(default=20.0)
+    target = models.ForeignKey(Target, on_delete=models.SET_NULL, null=True, blank=False, related_name="logical_units")
 
     def __str__(self):
-        if self.target:
-            return self.name + " [is snapshot of '" + self.target.name + "']"
-        else:
-            return self.name
+        return self.name
+
+
+class Snapshot(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False)
+    size_in_gb = models.FloatField(default=5.0)
+    logical_unit = models.ForeignKey(LogicalUnit, on_delete=models.CASCADE, null=False, blank=False,
+                                     related_name="snapshots")
+
+    class Meta:
+        unique_together = ('name', 'logical_unit')
+
+    def __str__(self):
+        return self.name + " [is snapshot of '" + self.logical_unit.name + "']"

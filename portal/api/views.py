@@ -24,6 +24,12 @@ class TargetViewSet(viewsets.ModelViewSet):
     queryset = Target.objects.all()
     serializer_class = TargetSerializer
 
+    def get_queryset(self):
+        mac_address = self.request.query_params.get("mac_address", None)
+        if mac_address:
+            self.queryset = self.queryset.filter(initiator__mac_address=mac_address)
+        return self.queryset
+
     """
     def list(self, request):
         pass
@@ -36,6 +42,33 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     # def partial_update(self, request, pk=None):
     #    raise ParseError("Unable to partially update")
+
+    @detail_route()
+    def get_qualified_name(self, request, pk):
+        target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target DB instance not found with pk")
+        logical_unit = target.logical_units.earliest("last_attached")
+        disk_path = None
+        volume_group = VolumeGroup(logical_unit.group)
+        if volume_group:
+            logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
+            if logical_volumes:
+                logical_volume = logical_volumes[0]
+                disk_path = logical_volume.get_path()
+                snapshot = logical_unit.snapshots.filter(active=True).first()
+                if snapshot:
+                    snapshot_obj = logical_volume.get_snapshots(snapshot.name)
+                    disk_path = snapshot_obj.get_path()
+        if disk_path:
+            iscsi_target = ISCSITarget(pk, target.name)
+            if not iscsi_target.exists():
+                if iscsi_target.add():
+                    pass
+            if iscsi_target.exists():
+                (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
+                if not exists:
+                    iscsi_target.attach_logical_unit(disk_path, logical_unit.id)
 
     @detail_route(methods=["PATCH"])
     def attach(self, request, pk):
@@ -62,12 +95,13 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def detach(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
-        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
+        logical_units = target.logical_units.filter()
+        for logical_unit in logical_units:
+            if logical_unit:
+                lv = VolumeGroup(target.group).get_logical_volumes(target.name)
         if not lv:
             raise ParseError("Target disk not found")
         if target.active_snapshot:
@@ -82,11 +116,14 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def activate(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
+        iscsi_target = ISCSITarget(pk, target.name)
+        if not iscsi_target.exists():
+            if iscsi_target.add():
+                pass
+
         lv = VolumeGroup(target.logical_volumes[0].group).get_logical_volumes(target.logical_volumes[0].name)
         if not lv:
             raise ParseError("Target disk not found")
@@ -94,10 +131,6 @@ class TargetViewSet(viewsets.ModelViewSet):
             disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
         else:
             disk_path = lv.get_path()
-        iscsi_target = ISCSITarget(pk, target.name)
-        if not iscsi_target.exists():
-            if iscsi_target.add():
-                pass
         if iscsi_target.exists():
             (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and not exists:
@@ -107,11 +140,14 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def deactivate(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
+        iscsi_target = ISCSITarget(pk, target.name)
+        if iscsi_target.exists():
+            if iscsi_target.remove():
+                pass
+
         lv = VolumeGroup(target.group).get_logical_volumes(target.name)
         if not lv:
             raise ParseError("Target disk not found")
@@ -119,16 +155,12 @@ class TargetViewSet(viewsets.ModelViewSet):
             disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
         else:
             disk_path = lv.get_path()
-        iscsi_target = ISCSITarget(pk, target.name)
         if iscsi_target.exists():
             iscsi_target.unbind_from_initiator()
         if iscsi_target.exists():
             (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if lun and exists:
                 iscsi_target.detach_logical_unit(lun)
-        if iscsi_target.exists():
-            if iscsi_target.remove():
-                pass
 
 
 class LogicalUnitViewSet(viewsets.ModelViewSet):

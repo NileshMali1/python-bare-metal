@@ -47,7 +47,7 @@ class Target(models.Model):
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
     status = models.PositiveSmallIntegerField(choices=TargetStatus.choices(), default=TargetStatus.OFFLINE)
-    initiator = models.ForeignKey(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="targets")
+    initiator = models.OneToOneField(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="target")
 
     def __str__(self):
         if self.initiator:
@@ -61,6 +61,8 @@ class LogicalUnit(models.Model):
     groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
     group = models.CharField(max_length=20, choices=groups)
     size_in_gb = models.FloatField(default=20.0)
+    active = models.BooleanField(default=False)
+    last_attached = models.DateTimeField(null=True)
     target = models.ForeignKey(Target, on_delete=models.SET_NULL, null=True, blank=False, related_name="logical_units")
 
     def __str__(self):

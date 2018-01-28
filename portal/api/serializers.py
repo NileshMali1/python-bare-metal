@@ -3,7 +3,7 @@ from api.models import Initiator, Target, LogicalUnit, Snapshot
 
 
 class InitiatorSerializer(serializers.HyperlinkedModelSerializer):
-    targets = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="target-detail")
+    target = serializers.HyperlinkedRelatedField(many=False, read_only=True, view_name="target-detail")
 
     class Meta:
         model = Initiator

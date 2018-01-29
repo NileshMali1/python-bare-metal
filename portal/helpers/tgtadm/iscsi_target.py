@@ -30,25 +30,20 @@ class ISCSITarget(object):
         arguments = ["tgtadm", "--lld", "iscsi", "--mode", mode]
         arguments.extend(args)
         try:
-            output = subprocess.check_output(arguments)
+            output = subprocess.check_output(arguments, stderr=subprocess.STDOUT)
             if output:
                 output = output.decode("utf-8")
             if output:
                 return output
-        except Exception as e:
-            print(str(e))
+        except subprocess.CalledProcessError as e:
+            pass
         return None
 
     def exists(self):
-        output = self._execute(["--op", "show"])
-        if output:
-            for line in output.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                if "Target " + self.get_id() + ": " + self.get_name() in line:
-                    return True
-        return False
+        output = self._execute(["--op", "show", "--tid", self._id])
+        if not output or "can't find the target" in output:
+            return False
+        return True
 
     def get_logical_unit_number(self, device_path):
         output = self._execute(["--op", "show"])
@@ -97,7 +92,7 @@ class ISCSITarget(object):
 
     def attach_logical_unit(self, block_device_path, lun):
         output = self._execute(
-            ["--op", "new", "--tid", self._id, "--lun", lun,
+            ["--op", "new", "--tid", self._id, "--lun", str(lun),
              "--backing-store", block_device_path], "logicalunit"
         )
         if output:
@@ -105,7 +100,19 @@ class ISCSITarget(object):
         return True
 
     def detach_logical_unit(self, lun):
-        output = self._execute(["--op", "delete", "--tid", self._id, "--lun", lun], "logicalunit")
+        output = self._execute(["--op", "delete", "--tid", self._id, "--lun", str(lun)], "logicalunit")
+        if output:
+            return False
+        return True
+
+    def list_connections(self):
+        output = self._execute(["--op", "show", "--tid", self._id], "conn")
+        if output:
+            return False
+        return True
+
+    def close_connection(self, sid, cid):
+        output = self._execute(["--op", "delete", "--tid", self._id, "--sid", sid, "--cid", cid], "conn")
         if output:
             return False
         return True

@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ParseError
 from rest_framework.decorators import detail_route
+from django.http import JsonResponse
 from api.models import Initiator, Target, LogicalUnit, Snapshot
 from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from django.urls import resolve
@@ -49,26 +50,38 @@ class TargetViewSet(viewsets.ModelViewSet):
         if not target:
             raise ParseError("Target DB instance not found with pk")
         logical_unit = target.logical_units.earliest("last_attached")
-        disk_path = None
+        if not logical_unit:
+            raise ParseError("No logical unit found")
         volume_group = VolumeGroup(logical_unit.group)
-        if volume_group:
-            logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
-            if logical_volumes:
-                logical_volume = logical_volumes[0]
-                disk_path = logical_volume.get_path()
-                snapshot = logical_unit.snapshots.filter(active=True).first()
-                if snapshot:
-                    snapshot_obj = logical_volume.get_snapshots(snapshot.name)
-                    disk_path = snapshot_obj.get_path()
-        if disk_path:
-            iscsi_target = ISCSITarget(pk, target.name)
-            if not iscsi_target.exists():
-                if iscsi_target.add():
-                    pass
-            if iscsi_target.exists():
-                (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-                if not exists:
-                    iscsi_target.attach_logical_unit(disk_path, logical_unit.id)
+        if not volume_group:
+            raise ParseError("No volume group found with that name")
+        logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
+        if not logical_volumes:
+            raise ParseError("No logical volumes found with that name")
+        logical_volume = logical_volumes[0]
+        disk_path = logical_volume.get_path()
+        active_snapshot = logical_unit.snapshots.filter(active=True).first()
+        if active_snapshot:
+            snapshot = logical_volume.get_snapshots(active_snapshot.name)
+            disk_path = snapshot.get_path()
+        if not disk_path:
+            raise ParseError("No disk found")
+        iscsi_target = ISCSITarget(pk, target.name)
+        if not iscsi_target.exists():
+            if iscsi_target.add():
+                pass
+        if iscsi_target.exists():
+            iscsi_target.bind_to_initiator()
+        if iscsi_target.exists():
+            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
+            if exists and str(lun) != str(logical_unit.id):
+                raise ParseError("LUN is registered with different ID")
+            else:
+                if not iscsi_target.attach_logical_unit(disk_path, logical_unit.id):
+                    raise ParseError("Failed to add LUN")
+            return JsonResponse({"lun": str(logical_unit.id), "iqn": iscsi_target.get_name()})
+        raise ParseError("No target")
+
 
     @detail_route(methods=["PATCH"])
     def attach(self, request, pk):
@@ -233,6 +246,10 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             message = "Failed to restore the disk. Details: %s" % output
             status_code = status.HTTP_417_EXPECTATION_FAILED
         return Response(message, status=status_code)
+
+    @detail_route()
+    def recreate_disk(self, request, pk):
+        pass
 
     def create(self, request):
         if not (request.data.__contains__('name') and request.data.__contains__('group')):

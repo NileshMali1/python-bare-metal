@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ParseError
 from rest_framework.decorators import detail_route
 from django.http import JsonResponse
-from api.models import Initiator, Target, LogicalUnit, Snapshot
+from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapshot
 from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from django.urls import resolve
 from urllib.parse import urlparse
@@ -31,25 +31,17 @@ class TargetViewSet(viewsets.ModelViewSet):
             self.queryset = self.queryset.filter(initiator__mac_address=mac_address)
         return self.queryset
 
-    """
-    def list(self, request):
-        pass
-    def retrieve(self, request, pk=None):
-        pass
-    """
-    # def update(self, request, pk=None):
-    #    target = Target.objects.get(pk=pk)
-    #    if target:
-
-    # def partial_update(self, request, pk=None):
-    #    raise ParseError("Unable to partially update")
-
     @detail_route()
     def get_qualified_name(self, request, pk):
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
-        logical_unit = target.logical_units.earliest("last_attached")
+        iscsi_target = ISCSITarget(pk, target.name)
+        logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ATTACHED.value).first()
+        if not logical_unit or logical_unit.boot_count == 0:
+            if iscsi_target.exists():
+                iscsi_target.detach_logical_unit(logical_unit.id)
+            logical_unit = target.logical_units.filter(status=LogicalUnitStatus.FREE.value).earliest("last_attached")
         if not logical_unit:
             raise ParseError("No logical unit found")
         volume_group = VolumeGroup(logical_unit.group)
@@ -66,114 +58,36 @@ class TargetViewSet(viewsets.ModelViewSet):
             disk_path = snapshot.get_path()
         if not disk_path:
             raise ParseError("No disk found")
-        iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists():
             if iscsi_target.add():
                 pass
         if iscsi_target.exists():
             iscsi_target.bind_to_initiator()
-        if iscsi_target.exists():
+            # iscsi_target.unbind_from_initiator()
             (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
             if exists and str(lun) != str(logical_unit.id):
                 raise ParseError("LUN is registered with different ID")
             else:
                 if not iscsi_target.attach_logical_unit(disk_path, logical_unit.id):
                     raise ParseError("Failed to add LUN")
+            logical_unit.status = LogicalUnitStatus.ATTACHED.value
+            if logical_unit.boot_count > 0:
+                logical_unit.boot_count -= 1
+            logical_unit.save()
             return JsonResponse({"lun": str(logical_unit.id), "iqn": iscsi_target.get_name()})
         raise ParseError("No target")
 
-
-    @detail_route(methods=["PATCH"])
-    def attach(self, request, pk):
-        if not pk:
-            raise ParseError("PK Not found")
+    """
+    def list(self, request):
+        pass
+    def retrieve(self, request, pk=None):
+        pass
+    def update(self, request, pk=None):
         target = Target.objects.get(pk=pk)
-        if not target:
-            raise ParseError("Target DB instance not found with pk")
-        lv = VolumeGroup(target.logical_volumes[0].group).get_logical_volumes(target.logical_volumes[0].name)
-        if not lv:
-            raise ParseError("Target disk not found")
-        if target.active_snapshot:
-            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
-        else:
-            disk_path = lv.get_path()
-        iscsi_target = ISCSITarget(pk, target.name)
-        if not iscsi_target.exists():
-            if iscsi_target.add():
-                pass
-        if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-            if lun and not exists:
-                iscsi_target.attach_logical_unit(disk_path, lun)
-
-    @detail_route(methods=["PATCH"])
-    def detach(self, request, pk):
-        target = Target.objects.get(pk=pk)
-        if not target:
-            raise ParseError("Target DB instance not found with pk")
-        logical_units = target.logical_units.filter()
-        for logical_unit in logical_units:
-            if logical_unit:
-                lv = VolumeGroup(target.group).get_logical_volumes(target.name)
-        if not lv:
-            raise ParseError("Target disk not found")
-        if target.active_snapshot:
-            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
-        else:
-            disk_path = lv.get_path()
-        iscsi_target = ISCSITarget(pk, target.name)
-        if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-            if lun and exists:
-                iscsi_target.detach_logical_unit(lun)
-
-    @detail_route(methods=["PATCH"])
-    def activate(self, request, pk):
-        target = Target.objects.get(pk=pk)
-        if not target:
-            raise ParseError("Target DB instance not found with pk")
-        iscsi_target = ISCSITarget(pk, target.name)
-        if not iscsi_target.exists():
-            if iscsi_target.add():
-                pass
-
-        lv = VolumeGroup(target.logical_volumes[0].group).get_logical_volumes(target.logical_volumes[0].name)
-        if not lv:
-            raise ParseError("Target disk not found")
-        if target.active_snapshot:
-            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
-        else:
-            disk_path = lv.get_path()
-        if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-            if lun and not exists:
-                iscsi_target.attach_logical_unit(disk_path, lun)
-        if iscsi_target.exists():
-            iscsi_target.bind_to_initiator()
-
-    @detail_route(methods=["PATCH"])
-    def deactivate(self, request, pk):
-        target = Target.objects.get(pk=pk)
-        if not target:
-            raise ParseError("Target DB instance not found with pk")
-        iscsi_target = ISCSITarget(pk, target.name)
-        if iscsi_target.exists():
-            if iscsi_target.remove():
-                pass
-
-        lv = VolumeGroup(target.group).get_logical_volumes(target.name)
-        if not lv:
-            raise ParseError("Target disk not found")
-        if target.active_snapshot:
-            disk_path = lv.get_snapshots(target.active_snapshot.name)[0].get_path()
-        else:
-            disk_path = lv.get_path()
-        if iscsi_target.exists():
-            iscsi_target.unbind_from_initiator()
-        if iscsi_target.exists():
-            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-            if lun and exists:
-                iscsi_target.detach_logical_unit(lun)
+        if target:
+    def partial_update(self, request, pk=None):
+        raise ParseError("Unable to partially update")
+    """
 
 
 class LogicalUnitViewSet(viewsets.ModelViewSet):

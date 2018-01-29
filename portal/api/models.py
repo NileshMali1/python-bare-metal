@@ -46,7 +46,7 @@ class Target(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
-    status = models.PositiveSmallIntegerField(choices=TargetStatus.choices(), default=TargetStatus.OFFLINE)
+    status = models.PositiveSmallIntegerField(choices=TargetStatus.choices(), default=TargetStatus.OFFLINE.value)
     initiator = models.OneToOneField(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="target")
 
     def __str__(self):
@@ -56,12 +56,27 @@ class Target(models.Model):
             return self.name
 
 
+@unique
+class LogicalUnitStatus(Enum):
+    FREE = 0
+    ATTACHED = 1
+    MOUNTED = 2
+
+    @classmethod
+    def choices(cls):
+        members = inspect.getmembers(cls, lambda member: not (inspect.isroutine(member)))
+        properties = [member for member in members if member[0][:2] != '__' and member[0] not in ['name', 'value']]
+        choices = tuple([(str(property[1].value), property[0]) for property in properties])
+        return choices
+
+
 class LogicalUnit(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
     group = models.CharField(max_length=20, choices=groups)
     size_in_gb = models.FloatField(default=20.0)
-    active = models.BooleanField(default=False)
+    status = models.PositiveSmallIntegerField(choices=LogicalUnitStatus.choices(), default=LogicalUnitStatus.FREE.value)
+    boot_count = models.PositiveSmallIntegerField(default=0, blank=False, null=False)
     last_attached = models.DateTimeField(null=True)
     target = models.ForeignKey(Target, on_delete=models.SET_NULL, null=True, blank=False, related_name="logical_units")
 

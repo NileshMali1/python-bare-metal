@@ -161,9 +161,22 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             status_code = status.HTTP_417_EXPECTATION_FAILED
         return Response(message, status=status_code)
 
-    @detail_route()
-    def recreate_disk(self, request, pk):
-        pass
+    @detail_route(methods=["PATCH"])
+    def recreate(self, request, pk):
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        if not logical_unit:
+            return None
+        virtual_group = VolumeGroup(logical_unit.group)
+        if not virtual_group:
+            None
+        logical_volumes = virtual_group.get_logical_volumes(logical_unit.name)
+        logical_volume = logical_volumes[0] if logical_volumes else None
+        if logical_volume:
+            (size, unit) = logical_volume.get_size()
+            if virtual_group.remove_logical_volume(logical_unit.name) and virtual_group.add(logical_unit.name, size, unit):
+                return Response("Created...")
+        return ParseError("error: unable to recreate...")
+
 
     def create(self, request):
         if not (request.data.__contains__('name') and request.data.__contains__('group')):

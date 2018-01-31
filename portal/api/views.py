@@ -33,26 +33,10 @@ class TargetViewSet(viewsets.ModelViewSet):
         return self.queryset
 
     @staticmethod
-    def get_device_path(logical_unit):
-        volume_group = VolumeGroup(logical_unit.group)
-        if not volume_group:
-            return None
-        logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
-        if not logical_volumes:
-            return None
-        logical_volume = logical_volumes[0]
-        device_path = logical_volume.get_path()
-        active_snapshot = logical_unit.snapshots.filter(active=True).first()
-        if active_snapshot:
-            snapshot = logical_volume.get_snapshots(active_snapshot.name)
-            device_path = snapshot.get_path()
-        return device_path
-
-    @staticmethod
     def register_all_usable_logical_units(target, iscsi_target):
         logical_units = target.logical_units.filter(status=LogicalUnitStatus.OFFLINE.value, use=True)
         for logical_unit in logical_units:
-            device_path = TargetViewSet.get_device_path(logical_unit)
+            device_path = LogicalUnitViewSet.get_device_path(logical_unit)
             if not device_path:
                 continue
             (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
@@ -118,6 +102,22 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
     serializer_class = LogicalUnitSerializer
 
     @staticmethod
+    def get_device_path(logical_unit):
+        volume_group = VolumeGroup(logical_unit.group)
+        if not volume_group:
+            return None
+        logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
+        if not logical_volumes:
+            return None
+        logical_volume = logical_volumes[0]
+        device_path = logical_volume.get_path()
+        active_snapshot = logical_unit.snapshots.filter(active=True).first()
+        if active_snapshot:
+            snapshot = logical_volume.get_snapshots(active_snapshot.name)
+            device_path = snapshot.get_path()
+        return device_path
+
+    @staticmethod
     def get_logical_volume(pk):
         logical_unit = LogicalUnit.objects.get(pk=pk)
         if not logical_unit:
@@ -135,6 +135,34 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             return None
         snapshots = logical_unit.snapshots.filter(active=True)
         return snapshots[0] if snapshots else None
+
+    @staticmethod
+    def detach(logical_unit):
+        iscsi_target = ISCSITarget(logical_unit.target.id, logical_unit.target.name)
+        if iscsi_target.exists():
+            device_path = LogicalUnitViewSet.get_device_path(logical_unit)
+            if device_path:
+                (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
+                if exists and iscsi_target.detach_logical_unit(lun_id):
+                    return True
+        return False
+
+    @detail_route(methods=["PATCH"])
+    def recreate(self, request, pk):
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        if not logical_unit:
+            return ParseError("No logical unit")
+        virtual_group = VolumeGroup(logical_unit.group)
+        if not virtual_group:
+            return ParseError("No volume group")
+        logical_volumes = virtual_group.get_logical_volumes(logical_unit.name)
+        logical_volume = logical_volumes[0] if logical_volumes else None
+        if logical_volume:
+            (size, unit) = logical_volume.get_size()
+            self.detach(logical_unit)
+            if virtual_group.remove_logical_volume(logical_unit.name) and virtual_group.create_logical_volume(logical_unit.name, size, unit):
+                return Response("Created...")
+        return ParseError("error: unable to recreate...")
 
     @detail_route(methods=["PATCH"])
     def revert(self, request, pk):
@@ -184,23 +212,6 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             status_code = status.HTTP_417_EXPECTATION_FAILED
         return Response(message, status=status_code)
 
-    @detail_route(methods=["PATCH"])
-    def recreate(self, request, pk):
-        logical_unit = LogicalUnit.objects.get(pk=pk)
-        if not logical_unit:
-            return None
-        virtual_group = VolumeGroup(logical_unit.group)
-        if not virtual_group:
-            None
-        logical_volumes = virtual_group.get_logical_volumes(logical_unit.name)
-        logical_volume = logical_volumes[0] if logical_volumes else None
-        if logical_volume:
-            (size, unit) = logical_volume.get_size()
-            if virtual_group.remove_logical_volume(logical_unit.name) and virtual_group.add(logical_unit.name, size, unit):
-                return Response("Created...")
-        return ParseError("error: unable to recreate...")
-
-
     def create(self, request):
         if not (request.data.__contains__('name') and request.data.__contains__('group')):
             raise ParseError("'name' & 'group' fields are required and should have valid data")
@@ -215,12 +226,12 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
                                                                       group=request.data.__getitem__('group'))
             if created:
                 logical_unit.size_in_gb = size
-                if request.data.__contains__('boot') and request.data.__getitem__('root'):
-                    boot = True if str(request.data.__getitem__('boot')).lower() == "true" else False
-                    logical_unit.boot = boot
-                if request.data.__contains__('active') and request.data.__getitem__('active'):
-                    active = True if str(request.data.__getitem__('active')).lower() == "true" else False
-                    logical_unit.active = active
+                if request.data.__contains__('use') and request.data.__getitem__('use'):
+                    logical_unit.use = True if str(request.data.__getitem__('use')).lower() == "true" else False
+                if request.data.__contains__('status') and request.data.__getitem__('status'):
+                    logical_unit.status = int(request.data.__getitem__('status'))
+                if request.data.__contains__('boot_count') and request.data.__getitem__('boot_count'):
+                    logical_unit.boot_count = int(request.data.__getitem__('boot_count'))
                 if request.data.__contains__('target') and request.data.__getitem__('target'):
                     logical_unit.target = Target.objects.get(pk=url_resolver(request.data.__getitem__('target')))
                 logical_unit.save()
@@ -230,11 +241,14 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
     def destroy(self, request, pk):
         logical_unit = LogicalUnit.objects.get(pk=pk)
         if logical_unit:
-            vg = VolumeGroup(logical_unit.group)
-            if vg and vg.contains_logical_volume(logical_unit.name) and vg.remove_logical_volume(logical_unit.name):
-                logical_unit.delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
-        raise ParseError("Could not delete resource for some reason")
+            self.detach(logical_unit)
+            volume_group = VolumeGroup(logical_unit.group)
+            if volume_group and volume_group.contains_logical_volume(logical_unit.name) and\
+                    not volume_group.remove_logical_volume(logical_unit.name):
+                        raise ParseError("Could not remove logical volume")
+            logical_unit.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        raise ParseError("Could not found the logical unit")
 
 
 class SnapshotViewSet(viewsets.ModelViewSet):
@@ -262,6 +276,8 @@ class SnapshotViewSet(viewsets.ModelViewSet):
                                                                    logical_unit=logical_unit)
                 if created:
                     snapshot.size_in_gb = size
+                    if request.data.__contains__('active') and request.data.__getitem__('active'):
+                        snapshot.active = True if str(request.data.__getitem__('active')).lower() == "true" else False
                     snapshot.save()
                 return Response(SnapshotSerializer(instance=snapshot, context={'request': request}).data)
             raise ParseError("Resource could not be created. %s" % status)
@@ -272,7 +288,8 @@ class SnapshotViewSet(viewsets.ModelViewSet):
         if snapshot:
             logical_volume = self.get_logical_volume(snapshot.logical_unit.group, snapshot.logical_unit.name)
             if logical_volume and logical_volume.contains_snapshot(snapshot.name) and\
-                    logical_volume.remove_snapshot(snapshot.name):
-                snapshot.delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
-        raise ParseError("Could not delete resource for some reason")
+                    not logical_volume.remove_snapshot(snapshot.name):
+                raise ParseError("Could not delete snapshot")
+            snapshot.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        raise ParseError("No snapshot instance found")

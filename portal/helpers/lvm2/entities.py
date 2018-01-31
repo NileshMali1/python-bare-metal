@@ -258,7 +258,8 @@ class VolumeGroup(object):
 
     def create_logical_volume(self, lv_name, size, unit="GiB"):
         if lv_name and size:
-            output = Helper.exec(["lvcreate", "--name", lv_name, "--size", str(size)+unit, self._vg_name])
+            output = Helper.exec(["lvcreate", "--wipesignatures", "y", "--name", lv_name,
+                                  "--size", str(size)+unit, self._vg_name])
             if output and 'Logical volume "' + lv_name + '" created' in output:
                 return True
         return False

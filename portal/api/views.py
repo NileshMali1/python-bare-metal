@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ParseError
 from rest_framework.decorators import detail_route
 from django.http import JsonResponse
+from django.utils import timezone
 from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapshot
 from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from django.urls import resolve
@@ -31,51 +32,73 @@ class TargetViewSet(viewsets.ModelViewSet):
             self.queryset = self.queryset.filter(initiator__mac_address=mac_address)
         return self.queryset
 
+    @staticmethod
+    def get_device_path(logical_unit):
+        volume_group = VolumeGroup(logical_unit.group)
+        if not volume_group:
+            return None
+        logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
+        if not logical_volumes:
+            return None
+        logical_volume = logical_volumes[0]
+        device_path = logical_volume.get_path()
+        active_snapshot = logical_unit.snapshots.filter(active=True).first()
+        if active_snapshot:
+            snapshot = logical_volume.get_snapshots(active_snapshot.name)
+            device_path = snapshot.get_path()
+        return device_path
+
+    @staticmethod
+    def register_all_usable_logical_units(target, iscsi_target):
+        logical_units = target.logical_units.filter(status=LogicalUnitStatus.OFFLINE.value, use=True)
+        for logical_unit in logical_units:
+            device_path = TargetViewSet.get_device_path(logical_unit)
+            if not device_path:
+                continue
+            (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
+            if exists and str(lun_id) != str(logical_unit.id) and iscsi_target.detach_logical_unit(lun_id):
+                exists = False
+            if not exists and iscsi_target.attach_logical_unit(device_path, logical_unit.id):
+                exists = True
+            if exists:
+                logical_unit.status = LogicalUnitStatus.ONLINE.value
+            logical_unit.save()
+
+    @staticmethod
+    def get_next_boot_disk(target):
+        get_next_boot_disk = False
+        logical_unit = target.logical_units.filter(status=LogicalUnitStatus.BUSY.value).first()
+        if logical_unit:
+            if logical_unit.boot_count <= 0:
+                logical_unit.status = LogicalUnitStatus.ONLINE.value
+                logical_unit.save()
+                get_next_boot_disk = True
+        if not logical_unit or get_next_boot_disk:
+            logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value, last_attached=None).first()
+            if not logical_unit:
+                logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value).earliest("last_attached")
+        return logical_unit if logical_unit else None
+
     @detail_route()
-    def get_qualified_name(self, request, pk):
+    def get_boot_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
         if not target:
             raise ParseError("Target DB instance not found with pk")
         iscsi_target = ISCSITarget(pk, target.name)
-        logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ATTACHED.value).first()
-        if not logical_unit or logical_unit.boot_count == 0:
-            if iscsi_target.exists():
-                iscsi_target.detach_logical_unit(logical_unit.id)
-            logical_unit = target.logical_units.filter(status=LogicalUnitStatus.FREE.value).earliest("last_attached")
+        if not iscsi_target.exists() and iscsi_target.add():
+            pass
+        iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
+        self.register_all_usable_logical_units(target, iscsi_target)
+
+        logical_unit = self.get_next_boot_disk(target)
         if not logical_unit:
-            raise ParseError("No logical unit found")
-        volume_group = VolumeGroup(logical_unit.group)
-        if not volume_group:
-            raise ParseError("No volume group found with that name")
-        logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
-        if not logical_volumes:
-            raise ParseError("No logical volumes found with that name")
-        logical_volume = logical_volumes[0]
-        disk_path = logical_volume.get_path()
-        active_snapshot = logical_unit.snapshots.filter(active=True).first()
-        if active_snapshot:
-            snapshot = logical_volume.get_snapshots(active_snapshot.name)
-            disk_path = snapshot.get_path()
-        if not disk_path:
             raise ParseError("No disk found")
-        if not iscsi_target.exists():
-            if iscsi_target.add():
-                pass
-        if iscsi_target.exists():
-            iscsi_target.bind_to_initiator()
-            # iscsi_target.unbind_from_initiator()
-            (lun, exists) = iscsi_target.get_logical_unit_number(disk_path)
-            if exists and str(lun) != str(logical_unit.id):
-                raise ParseError("LUN is registered with different ID")
-            else:
-                if not iscsi_target.attach_logical_unit(disk_path, logical_unit.id):
-                    raise ParseError("Failed to add LUN")
-            logical_unit.status = LogicalUnitStatus.ATTACHED.value
-            if logical_unit.boot_count > 0:
-                logical_unit.boot_count -= 1
-            logical_unit.save()
-            return JsonResponse({"lun": str(logical_unit.id), "iqn": iscsi_target.get_name()})
-        raise ParseError("No target")
+        logical_unit.status = LogicalUnitStatus.BUSY.value
+        logical_unit.last_attached = timezone.now()
+        if logical_unit.boot_count > 0:
+            logical_unit.boot_count -= 1
+        logical_unit.save()
+        return JsonResponse({"lun": str(logical_unit.id), "iqn": iscsi_target.get_name()})
 
     """
     def list(self, request):
@@ -101,7 +124,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             return None
         virtual_group = VolumeGroup(logical_unit.group)
         if not virtual_group:
-            None
+            return None
         logical_volumes = virtual_group.get_logical_volumes(logical_unit.name)
         return logical_volumes[0] if logical_volumes else None
 

@@ -58,9 +58,10 @@ class Target(models.Model):
 
 @unique
 class LogicalUnitStatus(Enum):
-    FREE = 0
-    ATTACHED = 1
-    MOUNTED = 2
+    OFFLINE = 0
+    ONLINE = 1
+    BUSY = 2
+    MOUNTED = 3
 
     @classmethod
     def choices(cls):
@@ -75,7 +76,8 @@ class LogicalUnit(models.Model):
     groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
     group = models.CharField(max_length=20, choices=groups)
     size_in_gb = models.FloatField(default=20.0)
-    status = models.PositiveSmallIntegerField(choices=LogicalUnitStatus.choices(), default=LogicalUnitStatus.FREE.value)
+    use = models.BooleanField(default=True, null=False, blank=False)
+    status = models.PositiveSmallIntegerField(choices=LogicalUnitStatus.choices(), default=LogicalUnitStatus.OFFLINE.value)
     boot_count = models.PositiveSmallIntegerField(default=0, blank=False, null=False)
     last_attached = models.DateTimeField(null=True)
     target = models.ForeignKey(Target, on_delete=models.SET_NULL, null=True, blank=False, related_name="logical_units")

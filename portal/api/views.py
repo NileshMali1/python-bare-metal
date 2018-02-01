@@ -4,10 +4,11 @@ from rest_framework.exceptions import ParseError
 from rest_framework.decorators import detail_route
 from django.http import JsonResponse
 from django.utils import timezone
-from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapshot
-from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
+from django.core.exceptions import ObjectDoesNotExist
 from django.urls import resolve
 from urllib.parse import urlparse
+from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapshot
+from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from helpers.lvm2.entities import VolumeGroup
 from helpers.tgtadm.iscsi_target import ISCSITarget
 
@@ -54,20 +55,27 @@ class TargetViewSet(viewsets.ModelViewSet):
         logical_unit = target.logical_units.filter(status=LogicalUnitStatus.BUSY.value).first()
         if logical_unit:
             if logical_unit.boot_count <= 0:
-                logical_unit.status = LogicalUnitStatus.ONLINE.value
+                if logical_unit.snapshots.filter(active=True):
+                    logical_unit.status = LogicalUnitStatus.MODIFIED.value
+                else:
+                    logical_unit.status = LogicalUnitStatus.ONLINE.value
                 logical_unit.save()
                 get_next_boot_disk = True
         if not logical_unit or get_next_boot_disk:
-            logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value, last_attached=None).first()
+            logical_unit = target.logical_units.filter(
+                status=LogicalUnitStatus.ONLINE.value, last_attached=None).first()
             if not logical_unit:
-                logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value).earliest("last_attached")
+                try:
+                    logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value).earliest("last_attached")
+                except ObjectDoesNotExist:
+                    logical_unit = None
         return logical_unit if logical_unit else None
 
     @detail_route()
     def get_boot_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
         if not target:
-            raise ParseError("Target DB instance not found with pk")
+            return JsonResponse({'result': False, 'message': "No target found"})
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists() and iscsi_target.add():
             pass
@@ -76,13 +84,37 @@ class TargetViewSet(viewsets.ModelViewSet):
 
         logical_unit = self.get_next_boot_disk(target)
         if not logical_unit:
-            raise ParseError("No disk found")
+            return JsonResponse({'result': False, 'message': "No logical unit found for booting"})
         logical_unit.status = LogicalUnitStatus.BUSY.value
         logical_unit.last_attached = timezone.now()
         if logical_unit.boot_count > 0:
             logical_unit.boot_count -= 1
         logical_unit.save()
-        return JsonResponse({"lun": str(logical_unit.id), "iqn": iscsi_target.get_name()})
+        return JsonResponse({'result': True, "lun": str(logical_unit.id), "iqn": iscsi_target.get_name(),
+                             'message': "use lun id and iqn to form iSCSI URL"})
+
+    @detail_route()
+    def get_map_disk_info(self, request, pk):
+        target = Target.objects.get(pk=pk)
+        if not target:
+            return JsonResponse({'result': False, 'message': "No target found"})
+        iscsi_target = ISCSITarget(pk, target.name)
+        if not iscsi_target.exists() and iscsi_target.add():
+            pass
+        iscsi_target.bind_to_initiator()  # opposite: iscsi_target.unbind_from_initiator()
+        logical_unit = target.logical_units.filter(status=LogicalUnitStatus.MODIFIED.value).first()
+        if not logical_unit:
+            return JsonResponse({'result': False, 'message': "No logical unit found for mapping"})
+        device_path = LogicalUnitViewSet.get_device_path(logical_unit)
+        if device_path:
+            (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
+            if exists and str(lun_id) == str(logical_unit.id):
+                logical_unit.status = LogicalUnitStatus.MOUNTED.value
+                logical_unit.save()
+                return JsonResponse({'result': True, "lun": str(logical_unit.id), "iqn": iscsi_target.get_name(),
+                                     'message': "use lun id and iqn to form iSCSI URL"})
+            return JsonResponse({'result': False, 'message': "No target online or online with different id"})
+        return JsonResponse({'result': False, 'message': "No logical volume path was discovered"})
 
     """
     def list(self, request):

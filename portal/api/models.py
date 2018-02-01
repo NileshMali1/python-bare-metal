@@ -61,7 +61,8 @@ class LogicalUnitStatus(Enum):
     OFFLINE = 0
     ONLINE = 1
     BUSY = 2
-    MOUNTED = 3
+    MODIFIED = 3
+    MOUNTED = 4
 
     @classmethod
     def choices(cls):

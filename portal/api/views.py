@@ -51,7 +51,7 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def get_next_boot_disk(target):
-        get_next_boot_disk = False
+        get_next_disk = False
         logical_unit = target.logical_units.filter(status=LogicalUnitStatus.BUSY.value).first()
         if logical_unit:
             if logical_unit.boot_count <= 0:
@@ -60,8 +60,8 @@ class TargetViewSet(viewsets.ModelViewSet):
                 else:
                     logical_unit.status = LogicalUnitStatus.ONLINE.value
                 logical_unit.save()
-                get_next_boot_disk = True
-        if not logical_unit or get_next_boot_disk:
+                get_next_disk = True
+        if not logical_unit or get_next_disk:
             logical_unit = target.logical_units.filter(
                 status=LogicalUnitStatus.ONLINE.value, last_attached=None).first()
             if not logical_unit:
@@ -71,6 +71,19 @@ class TargetViewSet(viewsets.ModelViewSet):
                     logical_unit = None
         return logical_unit if logical_unit else None
 
+    @staticmethod
+    def clear_target_connections(target, iscsi_target):
+        connections = iscsi_target.list_connections()
+        if not connections:
+            return
+        ip_address = target.initiator.ip_address
+        if not ip_address:
+            return
+        if ip_address in connections:
+            for session_id in connections[ip_address]:
+                for connection_id in connections[ip_address][session_id]:
+                    iscsi_target.close_connection(session_id, connection_id)
+
     @detail_route()
     def get_boot_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
@@ -79,6 +92,7 @@ class TargetViewSet(viewsets.ModelViewSet):
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists() and iscsi_target.add():
             pass
+        self.clear_target_connections(target, iscsi_target)
         iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
         self.register_all_usable_logical_units(target, iscsi_target)
 

@@ -105,14 +105,42 @@ class ISCSITarget(object):
             return False
         return True
 
-    def list_connections(self):
+    def list_connections(self, initiator=None):
+        connections = {}
         output = self._execute(["--op", "show", "--tid", self._id], "conn")
         if output:
-            return False
-        return True
+            session_id = None
+            connection_id = None
+            for line in output.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                matched = re.match("Session: (\d+)", line)
+                if matched:
+                    session_id = matched.group(1)
+                    continue
+                if not session_id:
+                    continue
+                matched = re.match("Connection: (\d+)", line)
+                if matched:
+                    connection_id = matched.group(1)
+                    continue
+                if not connection_id:
+                    continue
+                matched = re.match("IP Address: ([0-9.]+)", line)
+                if not matched:
+                    continue
+                if initiator and matched.group(1) != initiator.get_ip_address():
+                    continue
+                if matched.group(1) not in connections:
+                    connections[matched.group(1)] = {}
+                if session_id not in connections[matched.group(1)]:
+                    connections[matched.group(1)][session_id] = set()
+                connections[matched.group(1)][session_id].add(connection_id)
+        return connections
 
-    def close_connection(self, sid, cid):
-        output = self._execute(["--op", "delete", "--tid", self._id, "--sid", sid, "--cid", cid], "conn")
+    def close_connection(self, session_id, connection_id):
+        output = self._execute(["--op", "delete", "--tid", self._id, "--sid", session_id, "--cid", connection_id], "conn")
         if output:
             return False
         return True
@@ -121,7 +149,7 @@ class ISCSITarget(object):
         if by not in ("address", "name"):
             by = "name"
         if initiator:
-            by_value = initiator.get_address() if by == "address" else initiator.get_name()
+            by_value = initiator.get_ip_address() if by == "address" else initiator.get_name()
         else:
             by_value = "ALL"
             by = "address"

@@ -11,6 +11,7 @@ from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapsh
 from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from helpers.lvm2.entities import VolumeGroup
 from helpers.tgtadm.iscsi_target import ISCSITarget
+from helpers.tgtadm.iscsi_initiator import ISCSIInitiator
 
 
 def url_resolver(url):
@@ -40,12 +41,12 @@ class TargetViewSet(viewsets.ModelViewSet):
             device_path = LogicalUnitViewSet.get_device_path(logical_unit)
             if not device_path:
                 continue
-            (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
-            if exists and str(lun_id) != str(logical_unit.id) and iscsi_target.detach_logical_unit(lun_id):
-                exists = False
-            if not exists and iscsi_target.attach_logical_unit(device_path, logical_unit.id):
-                exists = True
-            if exists:
+            lun_id = iscsi_target.get_logical_unit_number(device_path)
+            if lun_id and str(lun_id) != str(logical_unit.id) and iscsi_target.detach_logical_unit(lun_id):
+                lun_id = None
+            if not lun_id and iscsi_target.attach_logical_unit(device_path, logical_unit.id):
+                lun_id = logical_unit.id
+            if lun_id:
                 logical_unit.status = LogicalUnitStatus.ONLINE.value
             logical_unit.save()
 
@@ -71,36 +72,15 @@ class TargetViewSet(viewsets.ModelViewSet):
                     logical_unit = None
         return logical_unit if logical_unit else None
 
-    @staticmethod
-    def close_initiator_target_connections(target, iscsi_target):
-
-        def close_sessions_connections(sessions):
-            for session_id in sessions:
-                for connection_id in sessions[session_id]:
-                    iscsi_target.close_connection(session_id, connection_id)
-
-        connections = iscsi_target.list_connections()
-        if not connections:
-            return
-        if target.initiator.ip_address:
-            if target.initiator.ip_address in connections:
-                close_sessions_connections(connections[target.initiator.ip_address])
-            return
-        for ip_address in connections:
-            close_sessions_connections(connections[ip_address])
-
     @detail_route()
     def get_boot_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
-        if not target:
-            return JsonResponse({'result': False, 'message': "No target found"})
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists() and iscsi_target.add():
             pass
-        self.close_initiator_target_connections(target, iscsi_target)
-        iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
         self.attach_all_usable_logical_units(target, iscsi_target)
-
+        iscsi_target.close_initiator_connections(ISCSIInitiator(target.initiator.ip_address))
+        iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
         logical_unit = self.get_next_boot_disk(target)
         if not logical_unit:
             return JsonResponse({'result': False, 'message': "No logical unit found for booting"})
@@ -115,8 +95,6 @@ class TargetViewSet(viewsets.ModelViewSet):
     @detail_route()
     def get_map_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
-        if not target:
-            return JsonResponse({'result': False, 'message': "No target found"})
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists() and iscsi_target.add():
             pass
@@ -126,14 +104,24 @@ class TargetViewSet(viewsets.ModelViewSet):
             return JsonResponse({'result': False, 'message': "No logical unit found for mapping"})
         device_path = LogicalUnitViewSet.get_device_path(logical_unit)
         if device_path:
-            (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
-            if exists and str(lun_id) == str(logical_unit.id):
+            lun_id = iscsi_target.get_logical_unit_number(device_path)
+            if lun_id and str(lun_id) == str(logical_unit.id):
                 logical_unit.status = LogicalUnitStatus.MOUNTED.value
                 logical_unit.save()
                 return JsonResponse({'result': True, "lun": str(logical_unit.id), "iqn": iscsi_target.get_name(),
                                      'message': "use lun id and iqn to form iSCSI URL"})
             return JsonResponse({'result': False, 'message': "No target online or online with different id"})
         return JsonResponse({'result': False, 'message': "No logical volume path was discovered"})
+
+    def destroy(self, request, pk):
+        target = Target.objects.get(pk=pk)
+        iscsi_target = ISCSITarget(pk, target.name)
+        if iscsi_target.exists():
+            iscsi_target.close_all_connections()
+            iscsi_target.detach_all_logical_units()
+            iscsi_target.remove()
+        target.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     """
     def list(self, request):
@@ -193,8 +181,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         if iscsi_target.exists():
             device_path = LogicalUnitViewSet.get_device_path(logical_unit)
             if device_path:
-                (lun_id, exists) = iscsi_target.get_logical_unit_number(device_path)
-                if exists and iscsi_target.detach_logical_unit(lun_id):
+                lun_id = iscsi_target.get_logical_unit_number(device_path)
+                if lun_id and iscsi_target.detach_logical_unit(lun_id):
                     return True
         return False
 

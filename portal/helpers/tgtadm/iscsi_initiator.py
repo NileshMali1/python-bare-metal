@@ -3,7 +3,7 @@
 class ISCSIInitiator(object):
     """iSCSI initiator object"""
 
-    def __init__(self, ip_address, name):
+    def __init__(self, ip_address, name=None):
         self._ip_address = ip_address
         self._name = name
 

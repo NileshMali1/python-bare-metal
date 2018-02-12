@@ -45,32 +45,37 @@ class ISCSITarget(object):
             return False
         return True
 
-    def get_logical_unit_number(self, device_path):
+    def list_active_logical_units(self):
+        logical_units = {}
         output = self._execute(["--op", "show"])
-        lun = None
-        device_found = False
         if output:
             target_found = False
+            current_logical_unit_number = None
             for line in output.split("\n"):
                 line = line.strip()
                 if not line:
                     continue
                 if "Target " in line:
-                    target_found = True if\
-                        not target_found and "Target "+self.get_id()+": "+self.get_name() in line\
-                        else False
+                    target_found = True if "Target "+self.get_id()+": "+self.get_name() in line else False
                     continue
                 if not target_found:
                     continue
                 match = re.search(r"^LUN: (\d+)$", line)
                 if match:
-                    lun = match.group(1)
+                    current_logical_unit_number = match.group(1) if int(match.group(1)) > 0 else None
                     continue
-                if lun and target_found:
-                    if "Backing store path: "+device_path in line:
-                        device_found = True
-                        break
-        return (lun, device_found) if device_found else (str(int(lun)+1), device_found)
+                if not current_logical_unit_number:
+                    continue
+                match = re.search(r"Backing store path: (.*)$", line)
+                if match and "/dev/" in match.group(1):
+                    logical_units[match.group(1)] = current_logical_unit_number
+        return logical_units
+
+    def get_logical_unit_number(self, device_path):
+        active_logical_units_info = self.list_active_logical_units()
+        if active_logical_units_info and device_path in active_logical_units_info:
+            return active_logical_units_info[device_path]
+        return None
 
     def get_details(self):
         output = self._execute(["--op", "show", "--tid", self._id])
@@ -104,6 +109,12 @@ class ISCSITarget(object):
         if output:
             return False
         return True
+
+    def detach_all_logical_units(self):
+        active_logical_units = self.list_active_logical_units()
+        if active_logical_units:
+            for active_logical_unit_path in active_logical_units:
+                self.detach_logical_unit(active_logical_units[active_logical_unit_path])
 
     def list_connections(self, initiator=None):
         connections = {}
@@ -144,6 +155,22 @@ class ISCSITarget(object):
         if output:
             return False
         return True
+
+    def _close_connections(self, connections):
+        if not connections:
+            return True
+        closed = []
+        for ip_address in connections:
+            for session_id in connections[ip_address]:
+                for connection_id in connections[ip_address][session_id]:
+                    closed.append(self.close_connection(session_id, connection_id))
+        return all(closed)
+
+    def close_initiator_connections(self, initiator):
+        return self._close_connections(self.list_connections(initiator))
+
+    def close_all_connections(self):
+        return self._close_connections(self.list_connections())
 
     def _bind_or_unbind(self, operation, initiator=None, by="address"):
         if by not in ("address", "name"):

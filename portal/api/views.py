@@ -34,7 +34,7 @@ class TargetViewSet(viewsets.ModelViewSet):
         return self.queryset
 
     @staticmethod
-    def register_all_usable_logical_units(target, iscsi_target):
+    def attach_all_usable_logical_units(target, iscsi_target):
         logical_units = target.logical_units.filter(status=LogicalUnitStatus.OFFLINE.value, use=True)
         for logical_unit in logical_units:
             device_path = LogicalUnitViewSet.get_device_path(logical_unit)
@@ -72,17 +72,22 @@ class TargetViewSet(viewsets.ModelViewSet):
         return logical_unit if logical_unit else None
 
     @staticmethod
-    def clear_target_connections(target, iscsi_target):
+    def close_initiator_target_connections(target, iscsi_target):
+
+        def close_sessions_connections(sessions):
+            for session_id in sessions:
+                for connection_id in sessions[session_id]:
+                    iscsi_target.close_connection(session_id, connection_id)
+
         connections = iscsi_target.list_connections()
         if not connections:
             return
-        ip_address = target.initiator.ip_address
-        if not ip_address:
+        if target.initiator.ip_address:
+            if target.initiator.ip_address in connections:
+                close_sessions_connections(connections[target.initiator.ip_address])
             return
-        if ip_address in connections:
-            for session_id in connections[ip_address]:
-                for connection_id in connections[ip_address][session_id]:
-                    iscsi_target.close_connection(session_id, connection_id)
+        for ip_address in connections:
+            close_sessions_connections(connections[ip_address])
 
     @detail_route()
     def get_boot_disk_info(self, request, pk):
@@ -92,9 +97,9 @@ class TargetViewSet(viewsets.ModelViewSet):
         iscsi_target = ISCSITarget(pk, target.name)
         if not iscsi_target.exists() and iscsi_target.add():
             pass
-        self.clear_target_connections(target, iscsi_target)
+        self.close_initiator_target_connections(target, iscsi_target)
         iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
-        self.register_all_usable_logical_units(target, iscsi_target)
+        self.attach_all_usable_logical_units(target, iscsi_target)
 
         logical_unit = self.get_next_boot_disk(target)
         if not logical_unit:

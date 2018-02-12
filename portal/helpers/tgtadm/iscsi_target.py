@@ -50,7 +50,7 @@ class ISCSITarget(object):
         output = self._execute(["--op", "show"])
         if output:
             target_found = False
-            current_logical_unit_number = None
+            logical_unit_id = None
             for line in output.split("\n"):
                 line = line.strip()
                 if not line:
@@ -62,19 +62,29 @@ class ISCSITarget(object):
                     continue
                 match = re.search(r"^LUN: (\d+)$", line)
                 if match:
-                    current_logical_unit_number = match.group(1) if int(match.group(1)) > 0 else None
+                    logical_unit_id = match.group(1) if int(match.group(1)) > 0 else None
                     continue
-                if not current_logical_unit_number:
+                if not logical_unit_id:
                     continue
                 match = re.search(r"Backing store path: (.*)$", line)
                 if match and "/dev/" in match.group(1):
-                    logical_units[match.group(1)] = current_logical_unit_number
+                    logical_units[logical_unit_id] = match.group(1)
         return logical_units
 
     def get_logical_unit_number(self, device_path):
-        active_logical_units_info = self.list_active_logical_units()
-        if active_logical_units_info and device_path in active_logical_units_info:
-            return active_logical_units_info[device_path]
+        active_logical_units = self.list_active_logical_units()
+        if active_logical_units:
+            for key_number, value_device_path in active_logical_units.items():
+                if value_device_path == device_path:
+                    return key_number
+        return None
+
+    def get_logical_unit_device_path(self, number):
+        active_logical_units = self.list_active_logical_units()
+        if active_logical_units:
+            for key_number, value_device_path in active_logical_units.items():
+                if key_number == str(number):
+                    return value_device_path
         return None
 
     def get_details(self):

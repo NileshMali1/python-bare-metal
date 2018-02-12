@@ -41,13 +41,16 @@ class TargetViewSet(viewsets.ModelViewSet):
             device_path = LogicalUnitViewSet.get_device_path(logical_unit)
             if not device_path:
                 continue
-            lun_id = iscsi_target.get_logical_unit_number(device_path)
-            if lun_id and str(lun_id) != str(logical_unit.id) and iscsi_target.detach_logical_unit(lun_id):
-                lun_id = None
-            if not lun_id and iscsi_target.attach_logical_unit(device_path, logical_unit.id):
-                lun_id = logical_unit.id
-            if lun_id:
-                logical_unit.status = LogicalUnitStatus.ONLINE.value
+            attach_flag = True
+            active_device_path = iscsi_target.get_logical_unit_device_path(logical_unit.id)
+            if active_device_path:
+                if active_device_path != device_path:
+                    iscsi_target.detach_logical_unit(logical_unit.id)
+                else:
+                    attach_flag = False
+            if attach_flag:
+                iscsi_target.attach_logical_unit(device_path, logical_unit.id)
+            logical_unit.status = LogicalUnitStatus.ONLINE.value
             logical_unit.save()
 
     @staticmethod
@@ -154,8 +157,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         device_path = logical_volume.get_path()
         active_snapshot = logical_unit.snapshots.filter(active=True).first()
         if active_snapshot:
-            snapshot = logical_volume.get_snapshots(active_snapshot.name)
-            device_path = snapshot.get_path()
+            snapshots = logical_volume.get_snapshots(active_snapshot.name)
+            device_path = snapshots[0].get_path()
         return device_path
 
     @staticmethod
@@ -178,15 +181,11 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         return snapshots[0] if snapshots else None
 
     @staticmethod
-    def detach(logical_unit):
+    def detach_from_target(logical_unit):
         iscsi_target = ISCSITarget(logical_unit.target.id, logical_unit.target.name)
-        if iscsi_target.exists():
-            device_path = LogicalUnitViewSet.get_device_path(logical_unit)
-            if device_path:
-                lun_id = iscsi_target.get_logical_unit_number(device_path)
-                if lun_id and iscsi_target.detach_logical_unit(lun_id):
-                    return True
-        return False
+        if not iscsi_target.exists():
+            return True
+        return iscsi_target.detach_logical_unit(logical_unit.id)
 
     @detail_route(methods=["PATCH"])
     def recreate(self, request, pk):
@@ -200,7 +199,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         logical_volume = logical_volumes[0] if logical_volumes else None
         if logical_volume:
             (size, unit) = logical_volume.get_size()
-            self.detach(logical_unit)
+            self.detach_from_target(logical_unit)
             if virtual_group.remove_logical_volume(logical_unit.name) and virtual_group.create_logical_volume(logical_unit.name, size, unit):
                 return Response("Created...")
         return ParseError("error: unable to recreate...")
@@ -282,7 +281,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
     def destroy(self, request, pk):
         logical_unit = LogicalUnit.objects.get(pk=pk)
         if logical_unit:
-            self.detach(logical_unit)
+            self.detach_from_target(logical_unit)
             volume_group = VolumeGroup(logical_unit.group)
             if volume_group and volume_group.contains_logical_volume(logical_unit.name) and\
                     not volume_group.remove_logical_volume(logical_unit.name):
@@ -296,20 +295,15 @@ class SnapshotViewSet(viewsets.ModelViewSet):
     queryset = Snapshot.objects.all()
     serializer_class = SnapshotSerializer
 
-    @staticmethod
-    def get_logical_volume(vgroup_name, lv_name):
-        volume_group = VolumeGroup(vgroup_name)
-        if not volume_group:
-            return None
-        logical_volumes = volume_group.get_logical_volumes(lv_name)
-        return logical_volumes[0] if logical_volumes else None
-
     def create(self, request):
         if request.data.__contains__('name') and request.data.__contains__('logical_unit'):
             logical_unit = LogicalUnit.objects.get(pk=url_resolver(request.data.__getitem__('logical_unit')))
             if not logical_unit:
                 raise ParseError("Logical unit not found.")
-            logical_volume = self.get_logical_volume(logical_unit.group, logical_unit.name)
+            if logical_unit.status != LogicalUnitStatus.OFFLINE.value:
+                raise ParseError("Logical unit must be offline and its initiator machine must also be turned off")
+            LogicalUnitViewSet.detach_from_target(logical_unit)
+            logical_volume = LogicalUnitViewSet.get_logical_volume(logical_unit.id)
             size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 5.0
             if logical_volume and not logical_volume.contains_snapshot(request.data.__getitem__('name')) and \
                     logical_volume.create_snapshot(request.data.__getitem__('name'), size):
@@ -324,13 +318,21 @@ class SnapshotViewSet(viewsets.ModelViewSet):
             raise ParseError("Resource could not be created. %s" % status)
         raise ParseError("'name' & 'group' fields are required and should have valid data")
 
-    def destroy(self, request, pk=None):
+    @staticmethod
+    def remove_snapshot_device(snapshot):
+        logical_volume = LogicalUnitViewSet.get_logical_volume(snapshot.logical_unit.id)
+        if not logical_volume:
+            return True
+        if not logical_volume.contains_snapshot(snapshot.name):
+            return True
+        return logical_volume.remove_snapshot(snapshot.name)
+
+    def destroy(self, request, pk):
         snapshot = Snapshot.objects.get(pk=pk)
-        if snapshot:
-            logical_volume = self.get_logical_volume(snapshot.logical_unit.group, snapshot.logical_unit.name)
-            if logical_volume and logical_volume.contains_snapshot(snapshot.name) and\
-                    not logical_volume.remove_snapshot(snapshot.name):
-                raise ParseError("Could not delete snapshot")
-            snapshot.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        raise ParseError("No snapshot instance found")
+        if snapshot.logical_unit.status != LogicalUnitStatus.OFFLINE.value:
+            raise ParseError("Logical unit must be offline and its initiator machine must also be turned off")
+        LogicalUnitViewSet.detach_from_target(snapshot.logical_unit)
+        if not self.remove_snapshot_device(snapshot):
+            raise ParseError("Could not delete snapshot device")
+        snapshot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

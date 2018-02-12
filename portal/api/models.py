@@ -23,6 +23,7 @@ class Initiator(models.Model):
     mode = models.CharField(max_length=1, choices=InitiatorMode.choices(), default=InitiatorMode.AUTOMATIC.value,
                             null=False, blank=False)
     ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True, blank=True, null=True)
+    assists_initiators = models.ManyToManyField("self", blank=True)
     last_initiated = models.DateTimeField(null=True, blank=False)
 
     def __str__(self):

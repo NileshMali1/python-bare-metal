@@ -115,6 +115,8 @@ class TargetViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, pk):
         target = Target.objects.get(pk=pk)
+        if not target:
+            raise ParseError("Target not found")
         iscsi_target = ISCSITarget(pk, target.name)
         if iscsi_target.exists():
             iscsi_target.close_all_connections()

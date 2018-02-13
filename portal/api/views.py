@@ -35,21 +35,11 @@ class TargetViewSet(viewsets.ModelViewSet):
         return self.queryset
 
     @staticmethod
-    def attach_all_usable_logical_units(target, iscsi_target):
+    def attach_all_usable_logical_units(target):
         logical_units = target.logical_units.filter(status=LogicalUnitStatus.OFFLINE.value, use=True)
         for logical_unit in logical_units:
-            device_path = LogicalUnitViewSet.get_device_path(logical_unit)
-            if not device_path:
-                continue
-            attach_flag = True
-            active_device_path = iscsi_target.get_logical_unit_device_path(logical_unit.id)
-            if active_device_path:
-                if active_device_path != device_path:
-                    iscsi_target.detach_logical_unit(logical_unit.id)
-                else:
-                    attach_flag = False
-            if attach_flag:
-                iscsi_target.attach_logical_unit(device_path, logical_unit.id)
+            LogicalUnitViewSet.detach_from_target(logical_unit)  # if already attached, detach it
+            LogicalUnitViewSet.attach_to_target(logical_unit)
             logical_unit.status = LogicalUnitStatus.ONLINE.value
             logical_unit.save()
 
@@ -57,33 +47,31 @@ class TargetViewSet(viewsets.ModelViewSet):
     def get_next_boot_disk(target):
         get_next_disk = False
         logical_unit = target.logical_units.filter(status=LogicalUnitStatus.BUSY.value).first()
-        if logical_unit:
-            if logical_unit.boot_count <= 0:
-                if logical_unit.snapshots.filter(active=True):
-                    logical_unit.status = LogicalUnitStatus.MODIFIED.value
-                else:
-                    logical_unit.status = LogicalUnitStatus.ONLINE.value
-                logical_unit.save()
-                get_next_disk = True
+        if logical_unit and logical_unit.boot_count <= 0 and logical_unit.snapshots.filter(active=True):
+            logical_unit.status = LogicalUnitStatus.MODIFIED.value
+            logical_unit.save()
+            LogicalUnitViewSet.detach_from_target(logical_unit)
+            get_next_disk = True
         if not logical_unit or get_next_disk:
-            logical_unit = target.logical_units.filter(
-                status=LogicalUnitStatus.ONLINE.value, last_attached=None).first()
+            logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value, last_attached=None
+                                                       ).first()
             if not logical_unit:
                 try:
-                    logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value).earliest("last_attached")
+                    logical_unit = target.logical_units.filter(status=LogicalUnitStatus.ONLINE.value
+                                                               ).earliest("last_attached")
                 except ObjectDoesNotExist:
-                    logical_unit = None
+                    pass
         return logical_unit if logical_unit else None
 
     @detail_route()
     def get_boot_disk_info(self, request, pk):
         target = Target.objects.get(pk=pk)
         iscsi_target = ISCSITarget(pk, target.name)
-        if not iscsi_target.exists() and iscsi_target.add():
-            pass
-        self.attach_all_usable_logical_units(target, iscsi_target)
+        if not iscsi_target.exists():
+            iscsi_target.add()
+        iscsi_target.bind_to_initiator()  # opposite: iscsi_target.unbind_from_initiator()
+        self.attach_all_usable_logical_units(target)
         iscsi_target.close_initiator_connections(ISCSIInitiator(target.initiator.ip_address))
-        iscsi_target.bind_to_initiator() # opposite: iscsi_target.unbind_from_initiator()
         logical_unit = self.get_next_boot_disk(target)
         if not logical_unit:
             return JsonResponse({'result': False, 'message': "No logical unit found for booting"})
@@ -162,10 +150,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         return device_path
 
     @staticmethod
-    def get_logical_volume(pk):
-        logical_unit = LogicalUnit.objects.get(pk=pk)
-        if not logical_unit:
-            return None
+    def get_logical_volume(logical_unit):
         virtual_group = VolumeGroup(logical_unit.group)
         if not virtual_group:
             return None
@@ -179,6 +164,16 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             return None
         snapshots = logical_unit.snapshots.filter(active=True)
         return snapshots[0] if snapshots else None
+
+    @staticmethod
+    def attach_to_target(logical_unit):
+        iscsi_target = ISCSITarget(logical_unit.target.id, logical_unit.target.name)
+        if not iscsi_target.exists():
+            iscsi_target.add()
+        device_path = LogicalUnitViewSet.get_device_path(logical_unit)
+        if not device_path:
+            return False
+        return iscsi_target.attach_logical_unit(device_path, logical_unit.id)
 
     @staticmethod
     def detach_from_target(logical_unit):
@@ -213,7 +208,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
             snapshot_name = snapshot.name if snapshot else None
         if not snapshot_name:
             return Response("Could not find any active snapshot to revert to.", status=status.HTTP_417_EXPECTATION_FAILED)
-        logical_volume = self.get_logical_volume(pk)
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        logical_volume = self.get_logical_volume(logical_unit)
         if not logical_volume:
             raise ParseError("Logical volume not found")
         if logical_volume.revert_to_snapshot(snapshot_name):
@@ -222,7 +218,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def dump(self, request, pk):
-        logical_volume = self.get_logical_volume(pk)
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        logical_volume = self.get_logical_volume(logical_unit)
         if not logical_volume:
             raise ParseError("Logical volume not found")
         if not request.data.__contains__('local_file') or not request.data.__getitem__('local_file'):
@@ -238,7 +235,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def restore(self, request, pk):
-        logical_volume = self.get_logical_volume(pk)
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        logical_volume = self.get_logical_volume(logical_unit)
         if not logical_volume:
             raise ParseError("Target disk not found")
         if not request.data.__contains__('local_file') or not request.data.__getitem__('local_file'):
@@ -303,7 +301,7 @@ class SnapshotViewSet(viewsets.ModelViewSet):
             if logical_unit.status != LogicalUnitStatus.OFFLINE.value:
                 raise ParseError("Logical unit must be offline and its initiator machine must also be turned off")
             LogicalUnitViewSet.detach_from_target(logical_unit)
-            logical_volume = LogicalUnitViewSet.get_logical_volume(logical_unit.id)
+            logical_volume = LogicalUnitViewSet.get_logical_volume(logical_unit)
             size = float(request.data.__getitem__('size_in_gb')) if request.data.__contains__('size_in_gb') else 5.0
             if logical_volume and not logical_volume.contains_snapshot(request.data.__getitem__('name')) and \
                     logical_volume.create_snapshot(request.data.__getitem__('name'), size):
@@ -318,21 +316,13 @@ class SnapshotViewSet(viewsets.ModelViewSet):
             raise ParseError("Resource could not be created. %s" % status)
         raise ParseError("'name' & 'group' fields are required and should have valid data")
 
-    @staticmethod
-    def remove_snapshot_device(snapshot):
-        logical_volume = LogicalUnitViewSet.get_logical_volume(snapshot.logical_unit.id)
-        if not logical_volume:
-            return True
-        if not logical_volume.contains_snapshot(snapshot.name):
-            return True
-        return logical_volume.remove_snapshot(snapshot.name)
-
     def destroy(self, request, pk):
         snapshot = Snapshot.objects.get(pk=pk)
         if snapshot.logical_unit.status != LogicalUnitStatus.OFFLINE.value:
             raise ParseError("Logical unit must be offline and its initiator machine must also be turned off")
         LogicalUnitViewSet.detach_from_target(snapshot.logical_unit)
-        if not self.remove_snapshot_device(snapshot):
-            raise ParseError("Could not delete snapshot device")
+        logical_volume = LogicalUnitViewSet.get_logical_volume(snapshot.logical_unit)
+        if logical_volume:
+            logical_volume.remove_snapshot(snapshot.name)
         snapshot.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

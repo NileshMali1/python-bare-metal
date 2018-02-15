@@ -80,7 +80,7 @@ class TargetViewSet(viewsets.ModelViewSet):
         if logical_unit.boot_count > 0:
             logical_unit.boot_count -= 1
         logical_unit.save()
-        return JsonResponse({'result': True, "lun": str(logical_unit.id), "iqn": iscsi_target.get_name(),
+        return JsonResponse({'result': True, "lun": "{0:x}".format(logical_unit.id), "iqn": iscsi_target.get_name(),
                              'message': "use lun id and iqn to form iSCSI URL"})
 
     @detail_route()
@@ -99,7 +99,7 @@ class TargetViewSet(viewsets.ModelViewSet):
             if lun_id and str(lun_id) == str(logical_unit.id):
                 logical_unit.status = LogicalUnitStatus.MOUNTED.value
                 logical_unit.save()
-                return JsonResponse({'result': True, "lun": str(logical_unit.id), "iqn": iscsi_target.get_name(),
+                return JsonResponse({'result': True, "lun": "{0:x}".format(logical_unit.id), "iqn": iscsi_target.get_name(),
                                      'message': "use lun id and iqn to form iSCSI URL"})
             return JsonResponse({'result': False, 'message': "No target online or online with different id"})
         return JsonResponse({'result': False, 'message': "No logical volume path was discovered"})

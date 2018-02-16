@@ -44,7 +44,13 @@ class TargetViewSet(viewsets.ModelViewSet):
             logical_unit.save()
 
     @staticmethod
-    def get_next_boot_disk(target):
+    def detach_all_active_logical_units(iscsi_target):
+        active_logical_units = iscsi_target.list_active_logical_units()
+        for lun_id in active_logical_units:
+            iscsi_target.detach_logical_unit(lun_id)
+
+    @staticmethod
+    def get_boot_logical_unit(target):
         get_next_disk = False
         logical_unit = target.logical_units.filter(status=LogicalUnitStatus.BUSY.value).first()
         if logical_unit and logical_unit.boot_count <= 0 and logical_unit.snapshots.filter(active=True):
@@ -70,11 +76,12 @@ class TargetViewSet(viewsets.ModelViewSet):
         if not iscsi_target.exists():
             iscsi_target.add()
         iscsi_target.bind_to_initiator()  # opposite: iscsi_target.unbind_from_initiator()
-        self.attach_all_usable_logical_units(target)
+        self.detach_all_active_logical_units(iscsi_target)
         iscsi_target.close_initiator_connections(ISCSIInitiator(target.initiator.ip_address))
-        logical_unit = self.get_next_boot_disk(target)
+        logical_unit = self.get_boot_logical_unit(target)
         if not logical_unit:
             return JsonResponse({'result': False, 'message': "No logical unit found for booting"})
+        LogicalUnitViewSet.attach_to_target(logical_unit)
         logical_unit.status = LogicalUnitStatus.BUSY.value
         logical_unit.last_attached = timezone.now()
         if logical_unit.boot_count > 0:

@@ -1,6 +1,4 @@
-import os
 import re
-
 from helpers.lvm2.helper import Helper
 
 
@@ -13,7 +11,7 @@ class Disk(object):
 
     @staticmethod
     def get_all():
-        fd_output = Helper.exec_fdisk()
+        fd_output = Helper.execute_fdisk()
         disks = []
         if fd_output:
             for line in fd_output.split("\n"):
@@ -35,7 +33,7 @@ class Disk(object):
         return self._sector_size
 
     def get_partitions(self):
-        metadata = Helper.exec_fdisk(self.get_path())
+        metadata = Helper.execute_fdisk(self.get_path())
         partitions = []
         if metadata:
             partition_section_columns = 0
@@ -66,16 +64,17 @@ class Disk(object):
 
     def mount(self, mount_location):
         for partition in self.get_partitions():
-            if partition.compute_size(self.get_sector_size(), "gb") > 2:
-                offset = partition.get_sector_start() * self.get_sector_size()
-                output = Helper.exec_mount(self.get_path(), offset, mount_location)
-                if output:
-                    return True
+            if partition.compute_size() <= 1:  # self.get_sector_size(), "gb"
+                continue
+            offset = partition.get_sector_start() * self.get_sector_size()
+            output = Helper.execute_mount(self.get_path(), offset, mount_location)
+            if not output:
+                return True
         return False
 
     def unmount(self, mount_location):
-        output = Helper.exec_umount(mount_location)
-        if output:
+        output = Helper.execute_umount(mount_location)
+        if not output:
             return True
         return False
 
@@ -149,14 +148,14 @@ class PhysicalVolume(Partition):
 
     @classmethod
     def create(cls, disk_partition_path):
-        output = Helper.exec(["pvcreate", disk_partition_path])
+        output = Helper.execute(["pvcreate", disk_partition_path])
         if output and 'Physical volume "'+disk_partition_path+'" successfully created.' in output:
             return True
         return False
 
     @classmethod
     def get_all(cls):
-        output = Helper.exec(["pvdisplay", "-c"])
+        output = Helper.execute(["pvdisplay", "-c"])
         pvs = []
         if output:
             for line in output.split("\n"):
@@ -167,7 +166,7 @@ class PhysicalVolume(Partition):
         return pvs
 
     def get_info(self):
-        output = Helper.exec(["pvdisplay", self._path_id])
+        output = Helper.execute(["pvdisplay", self._path_id])
         if output:
             is_new = False
             info = Helper.format(output, "--- Physical volume ---")
@@ -198,7 +197,7 @@ class PhysicalVolume(Partition):
         return VolumeGroup(self._filter_info("VG Name"))
 
     def remove(self):
-        output = Helper.exec(["pvremove", self.get_path_id()])
+        output = Helper.execute(["pvremove", self.get_path_id()])
         if output and 'Labels on physical volume "'+self.get_path_id()+'" successfully wiped.' in output:
             return True
         return False
@@ -220,14 +219,14 @@ class VolumeGroup(object):
             command.extend(pv_list)
         else:
             command.append(pv_list)
-        output = Helper.exec(command)
+        output = Helper.execute(command)
         if output and 'Volume group "' + vg_name + '" successfully created' in output:
             return True
         return False
 
     @classmethod
     def get_all(cls):
-        output = Helper.exec(["vgdisplay", "-c"])
+        output = Helper.execute(["vgdisplay", "-c"])
         vgs = []
         if output:
             for line in output.split("\n"):
@@ -238,14 +237,14 @@ class VolumeGroup(object):
         return vgs
 
     def remove(self):
-        output = Helper.exec(["vgremove", self._vg_name])
+        output = Helper.execute(["vgremove", self._vg_name])
         if output and 'Volume group "' + self._vg_name + '" successfully removed' in output:
             self._vg_name = None
             return True
         return False
 
     def contains_logical_volume(self, lv_name):
-        output = Helper.exec(["lvdisplay", "-c"])
+        output = Helper.execute(["lvdisplay", "-c"])
         if output:
             for line in output.split("\n"):
                 line = line.strip()
@@ -258,22 +257,22 @@ class VolumeGroup(object):
 
     def create_logical_volume(self, lv_name, size, unit="GiB"):
         if lv_name and size:
-            output = Helper.exec(["lvcreate", "--name", lv_name,
-                                  "--size", str(size)+unit, "--wipesignature", "y", self._vg_name])
+            output = Helper.execute(["lvcreate", "--name", lv_name,
+                                  "--size", str(size)+unit, "-W", "y", self._vg_name])
             if output and 'Logical volume "' + lv_name + '" created' in output:
                 return True
         return False
 
     def remove_logical_volume(self, lv_name):
         if lv_name:
-            output = Helper.exec(["lvremove", "--force", self._vg_name+'/'+lv_name])
+            output = Helper.execute(["lvremove", "--force", self._vg_name+'/'+lv_name])
             if output and 'Logical volume "' + lv_name + '" successfully removed' in output:
                 return True
         return False
 
     def rename_logical_volume(self, lv_name, new_lv_name):
         if lv_name and new_lv_name:
-            output = Helper.exec(["lvrename", self._vg_name, lv_name, new_lv_name])
+            output = Helper.execute(["lvrename", self._vg_name, lv_name, new_lv_name])
             if output and "Renamed \""+lv_name+"\" to \""+new_lv_name+"\" in volume group \""+self._vg_name+"\"":
                 return True
         return False
@@ -281,7 +280,7 @@ class VolumeGroup(object):
     def get_logical_volumes(self, name=None):
 
         def is_snapshot(lv_path):
-            sub_output = Helper.exec(["lvs", lv_path])
+            sub_output = Helper.execute(["lvs", lv_path])
             if sub_output:
                 for sub_line in sub_output.split("\n"):
                     sub_line = sub_line.strip()
@@ -291,7 +290,7 @@ class VolumeGroup(object):
                     return True if sub_columns[2].lower().startswith("s") else False
             return None
 
-        output = Helper.exec(["lvdisplay", "-c"])
+        output = Helper.execute(["lvdisplay", "-c"])
         lvs = []
         if output:
             for line in output.split("\n"):
@@ -306,19 +305,19 @@ class VolumeGroup(object):
         return lvs
 
     def include_physical_volume(self, pv):
-        output = Helper.exec(["vgextend", self._vg_name, pv.get_name()])
+        output = Helper.execute(["vgextend", self._vg_name, pv.get_name()])
         if output:
             return True
         return False
 
     def exclude_physical_volume(self, pv):
-        output = Helper.exec(["vgreduce", self._vg_name, pv.get_name()])
+        output = Helper.execute(["vgreduce", self._vg_name, pv.get_name()])
         if output:
             return True
         return False
 
     def get_physical_volumes(self, name=None):
-        output = Helper.exec(["pvdisplay", "-c"])
+        output = Helper.execute(["pvdisplay", "-c"])
         pvs = []
         if output:
             for line in output.split("\n"):
@@ -340,7 +339,7 @@ class LogicalVolume(Disk):
         super().__init__(volume_path)
 
     def get_info(self):
-        output = Helper.exec(["lvdisplay", self._device_path])
+        output = Helper.execute(["lvdisplay", self._device_path])
         if output:
             return Helper.format(output, "--- Logical volume ---")
         return None
@@ -367,10 +366,10 @@ class LogicalVolume(Disk):
         return VolumeGroup(self._filter_info("VG Name"))
 
     def dump_to_image(self, destination_path):
-        return Helper.exec_dd(self.get_path(), destination_path)
+        return Helper.execute_dd(self.get_path(), destination_path)
 
     def restore_from_image(self, source_path):
-        return Helper.exec_dd(source_path, self.get_path())
+        return Helper.execute_dd(source_path, self.get_path())
 
     def contains_snapshot(self, snap_name):
         snapshots = self._filter_info("source_of")
@@ -390,14 +389,14 @@ class LogicalVolume(Disk):
 
     def create_snapshot(self, snapshot_name, size, unit="GiB"):
         command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._device_path, "--size", str(size)+unit]
-        output = Helper.exec(command)
+        output = Helper.execute(command)
         if output and 'Logical volume "' + snapshot_name + '" created' in output:
             return True
         return False
 
     def remove_snapshot(self, snap_name):
         if snap_name:
-            output = Helper.exec(["lvremove", "--force", self.get_volume_group().get_name()+'/'+snap_name])
+            output = Helper.execute(["lvremove", "--force", self.get_volume_group().get_name()+'/'+snap_name])
             if output and 'Logical volume "' + snap_name + '" successfully removed' in output:
                 return True
         return False
@@ -414,7 +413,7 @@ class LogicalVolume(Disk):
 
     def rename_snapshot(self, snap_name, new_snap_name):
         if snap_name and new_snap_name:
-            output = Helper.exec(["lvrename", self.get_volume_group().get_name(), snap_name, new_snap_name])
+            output = Helper.execute(["lvrename", self.get_volume_group().get_name(), snap_name, new_snap_name])
             if output and "Renamed \"" + snap_name + "\" to \"" + new_snap_name + "\" in volume group \"" + \
                     self.get_volume_group().get_name()+"\"":
                 return True

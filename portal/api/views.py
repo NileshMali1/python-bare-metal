@@ -141,6 +141,29 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
     serializer_class = LogicalUnitSerializer
 
     @staticmethod
+    def map_status(status):
+        if status.lower() not in ["offline", "online", "busy", "modified", "mounted"]:
+            return None
+        if status.lower() == "offline":
+            return LogicalUnitStatus.OFFLINE.value
+        if status.lower() == "online":
+            return LogicalUnitStatus.ONLINE.value
+        if status.lower() == "busy":
+            return LogicalUnitStatus.BUSY.value
+        if status.lower() == "modified":
+            return LogicalUnitStatus.MODIFIED.value
+        if status.lower() == "mounted":
+            return LogicalUnitStatus.MOUNTED.value
+
+    def get_queryset(self):
+        status = self.request.query_params.get("status", None)
+        if status:
+            status = self.map_status(status)
+            if status:
+                self.queryset = self.queryset.filter(status=status)
+        return self.queryset
+
+    @staticmethod
     def get_device_path(logical_unit):
         volume_group = VolumeGroup(logical_unit.group)
         if not volume_group:
@@ -188,6 +211,14 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         if not iscsi_target.exists():
             return True
         return iscsi_target.detach_logical_unit(logical_unit.id)
+
+    @detail_route()
+    def get_mount_device_path(self, request, pk):
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        device_path = self.get_device_path(logical_unit)
+        if device_path:
+            return JsonResponse({"result": True, "device_path": device_path})
+        return JsonResponse({"result": False, "device_path": None, "message": "No device found"})
 
     @detail_route(methods=["PATCH"])
     def recreate(self, request, pk):

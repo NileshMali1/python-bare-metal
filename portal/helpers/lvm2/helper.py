@@ -6,9 +6,9 @@ class Helper(object):
     """ to execute lvm2 commands """
 
     @staticmethod
-    def exec_mount(device, offset, mount_point, mode="rw"):
+    def execute_mount(device, offset, mount_point, mode="rw"):
         args = ["mount"]
-        options = ["loop", "offset="+offset]
+        options = ["loop", "offset="+str(offset)]
         if mode == "ro":
             options.insert(1, mode)
         else:
@@ -20,14 +20,14 @@ class Helper(object):
         return None
     
     @staticmethod
-    def exec_umount(mount_point):
+    def execute_umount(mount_point):
         output = subprocess.check_output(["umount", "-f", mount_point])
         if output:
             return output.decode("utf-8")
         return None
 
     @staticmethod
-    def exec_fdisk(device=None):
+    def execute_fdisk(device=None):
         if device:
             output = subprocess.check_output(["fdisk", "-u=sectors", "--bytes", "-l", device])
         else:
@@ -37,7 +37,7 @@ class Helper(object):
         return None
 
     @staticmethod
-    def exec_dd(source, destination):
+    def execute_dd(source, destination):
         if not (source and destination):
             return None
         output = subprocess.check_output(["dd", "if="+source, "of="+destination, "bs=4M"], stderr=subprocess.STDOUT)
@@ -67,14 +67,14 @@ class Helper(object):
                     if len(splits) == 1 and source_of:
                         match = re.search(r"([a-zA-z0-9]+)\s+", splits[0])
                         if match:
-                            if not "source_of" in info:
+                            if "source_of" not in info:
                                 info["source_of"] = []
                             info["source_of"].append(match.group(1))
                     else:
                         info[splits[0]] = splits[1]
                         if source_of:
                             source_of = False
-                except IndexError as ie:
+                except IndexError:
                     if "host, time" in line:
                         splits = re.split(r"time\s+", line)
                         info[splits[0]+'time'] = splits[1]
@@ -83,7 +83,7 @@ class Helper(object):
         return info
 
     @staticmethod
-    def exec(argument_list=None):
+    def execute(argument_list=None):
         if not argument_list:
             return None
         try:

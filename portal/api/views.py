@@ -7,9 +7,10 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.urls import resolve
 from urllib.parse import urlparse
-from api.models import Initiator, Target, LogicalUnit, LogicalUnitStatus, Snapshot
+from api.models import Initiator, Target, LogicalUnit, Snapshot
 from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
 from helpers.lvm2.entities import VolumeGroup
+from helpers.lvm2.entities import DiskStatus as LogicalUnitStatus
 from helpers.tgtadm.iscsi_target import ISCSITarget
 from helpers.tgtadm.iscsi_initiator import ISCSIInitiator
 

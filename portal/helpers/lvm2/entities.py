@@ -1,5 +1,23 @@
 import re
 from helpers.lvm2.helper import Helper
+from enum import Enum, unique
+import inspect
+
+
+@unique
+class DiskStatus(Enum):
+    OFFLINE = 0
+    ONLINE = 1
+    BUSY = 2
+    MODIFIED = 3
+    MOUNTED = 4
+
+    @classmethod
+    def choices(cls):
+        members = inspect.getmembers(cls, lambda member: not (inspect.isroutine(member)))
+        properties = [member for member in members if member[0][:2] != '__' and member[0] not in ['name', 'value']]
+        choices = tuple([(str(property[1].value), property[0]) for property in properties])
+        return choices
 
 
 class Disk(object):

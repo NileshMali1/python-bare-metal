@@ -204,7 +204,11 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         device_path = LogicalUnitViewSet.get_device_path(logical_unit)
         if not device_path:
             return False
-        return iscsi_target.attach_logical_unit(device_path, logical_unit.id)
+        if iscsi_target.attach_logical_unit(device_path, logical_unit.id):
+            return iscsi_target.update_logical_unit_params(logical_unit.id, vendor_id=logical_unit.vendor_id,
+                                                           product_id=logical_unit.product_id,
+                                                           product_rev=logical_unit.product_rev)
+        return False
 
     @staticmethod
     def detach_from_target(logical_unit):

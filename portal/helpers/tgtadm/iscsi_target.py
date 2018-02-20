@@ -107,8 +107,24 @@ class ISCSITarget(object):
 
     def attach_logical_unit(self, block_device_path, lun):
         output = self._execute(
-            ["--op", "new", "--tid", self._id, "--lun", str(lun),
-             "--backing-store", block_device_path], "logicalunit"
+            ["--op", "new", "--tid", self._id, "--lun", str(lun), "--backing-store", block_device_path], "logicalunit"
+        )
+        if output:
+            return False
+        return True
+
+    def update_logical_unit_params(self, lun, **kwargs):
+        if not kwargs:
+            return False
+        params = []
+        for key, value in kwargs.items():
+            if key and value:
+                params.append("%s=%s" % (key, value))
+        if not params:
+            return False
+        params = ",".join(params)
+        output = self._execute(
+            ["--op", "update", "--tid", self._id, "--lun", str(lun), "--params", params], "logicalunit"
         )
         if output:
             return False

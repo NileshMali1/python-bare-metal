@@ -60,6 +60,9 @@ class Target(models.Model):
 
 class LogicalUnit(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
+    vendor_id = models.CharField(max_length=50, null=True, blank=True)
+    product_id = models.CharField(max_length=50, null=True, blank=True)
+    product_rev = models.CharField(max_length=50, null=True, blank=True)
     groups = tuple([(group.get_name(), group.get_name()) for group in VolumeGroup.get_all()])
     group = models.CharField(max_length=20, choices=groups)
     size_in_gb = models.FloatField(default=20.0)

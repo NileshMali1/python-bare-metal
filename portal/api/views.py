@@ -316,7 +316,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
                 if request.data.__contains__('use') and request.data.__getitem__('use'):
                     logical_unit.use = True if str(request.data.__getitem__('use')).lower() == "true" else False
                 if request.data.__contains__('status') and request.data.__getitem__('status'):
-                    logical_unit.status = int(request.data.__getitem__('status'))
+                    logical_unit.status = request.data.__getitem__('status')
                 if request.data.__contains__('boot_count') and request.data.__getitem__('boot_count'):
                     logical_unit.boot_count = int(request.data.__getitem__('boot_count'))
                 if request.data.__contains__('target') and request.data.__getitem__('target'):

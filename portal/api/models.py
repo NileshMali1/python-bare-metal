@@ -67,8 +67,7 @@ class LogicalUnit(models.Model):
     group = models.CharField(max_length=20, choices=groups)
     size_in_gb = models.FloatField(default=20.0)
     use = models.BooleanField(default=True, null=False, blank=False)
-    status = models.PositiveSmallIntegerField(choices=LogicalUnitStatus.choices(),
-                                              default=LogicalUnitStatus.OFFLINE.value)
+    status = models.CharField(max_length=1, choices=LogicalUnitStatus.choices(), default=LogicalUnitStatus.OFFLINE.value)
     boot_count = models.PositiveSmallIntegerField(default=0, blank=False, null=False)
     last_attached = models.DateTimeField(null=True)
     target = models.ForeignKey(Target, on_delete=models.SET_NULL, null=True, blank=False, related_name="logical_units")

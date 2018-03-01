@@ -6,11 +6,11 @@ import inspect
 
 @unique
 class DiskStatus(Enum):
-    OFFLINE = 0
-    ONLINE = 1
-    BUSY = 2
-    MODIFIED = 3
-    MOUNTED = 4
+    OFFLINE = "0"
+    ONLINE = "1"
+    BUSY = "2"
+    MODIFIED = "3"
+    MOUNTED = "4"
 
     @classmethod
     def choices(cls):

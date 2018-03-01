@@ -112,20 +112,6 @@ class TargetViewSet(viewsets.ModelViewSet):
             return JsonResponse({'result': False, 'message': "No target online or online with different id"})
         return JsonResponse({'result': False, 'message': "No logical volume path was discovered"})
 
-    def create(self, request):
-        if not request.data.__contains__('name'):
-            raise ParseError("'name' fields is required and should have valid data")
-        target, created = Target.objects.get_or_create(name=request.data.__getitem__('name'))
-        if created:
-            # if request.data.__contains__('use') and request.data.__getitem__('use'):
-            #    target.use = True if str(request.data.__getitem__('use')).lower() == "true" else False
-            if request.data.__contains__('status') and request.data.__getitem__('status'):
-                target.status = int(request.data.__getitem__('status'))
-            if request.data.__contains__('initiator') and request.data.__getitem__('initiator'):
-                target.initiator = Initiator.objects.get(pk=url_resolver(request.data.__getitem__('initiator')))
-            target.save()
-        return Response(TargetSerializer(instance=target, context={'request': request}).data)
-
     def destroy(self, request, pk):
         target = Target.objects.get(pk=pk)
         if not target:

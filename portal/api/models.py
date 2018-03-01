@@ -32,9 +32,9 @@ class Initiator(models.Model):
 
 @unique
 class TargetStatus(Enum):
-    OFFLINE = 0
-    ONLINE = 1
-    LOCKED = 2
+    OFFLINE = "0"
+    ONLINE = "1"
+    LOCKED = "2"
 
     @classmethod
     def choices(cls):
@@ -48,7 +48,7 @@ class Target(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
-    status = models.PositiveSmallIntegerField(choices=TargetStatus.choices(), default=TargetStatus.OFFLINE.value)
+    status = models.CharField(max_length=1, choices=TargetStatus.choices(), default=TargetStatus.OFFLINE.value)
     initiator = models.OneToOneField(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="target")
 
     def __str__(self):

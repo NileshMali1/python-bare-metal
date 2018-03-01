@@ -307,6 +307,12 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
                                                                       group=request.data.__getitem__('group'))
             if created:
                 logical_unit.size_in_gb = size
+                if request.data.__contains__('vendor_id') and request.data.__getitem__('vendor_id'):
+                    logical_unit.vendor_id = request.data.__getitem__('vendor_id')
+                if request.data.__contains__('product_id') and request.data.__getitem__('product_id'):
+                    logical_unit.product_id = request.data.__getitem__('product_id')
+                if request.data.__contains__('product_rev') and request.data.__getitem__('product_rev'):
+                    logical_unit.product_rev = request.data.__getitem__('product_rev')
                 if request.data.__contains__('use') and request.data.__getitem__('use'):
                     logical_unit.use = True if str(request.data.__getitem__('use')).lower() == "true" else False
                 if request.data.__contains__('status') and request.data.__getitem__('status'):

@@ -243,20 +243,26 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
 
     @detail_route(methods=["PATCH"])
     def revert(self, request, pk):
+        logical_unit = LogicalUnit.objects.get(pk=pk)
+        if logical_unit.status in [LogicalUnitStatus.BUSY.value, LogicalUnitStatus.MOUNTED.value]:
+            return JsonResponse(
+                {"result": False, "message": "Disk is busy or mounted, turn machine off and turn disk offline"}
+            )
         if request.data.__contains__('snapshot') and request.data.__getitem__('snapshot'):
             snapshot_name = request.data.__getitem__('snapshot')
         else:
             snapshot = self.get_active_snapshots(pk)
             snapshot_name = snapshot.name if snapshot else None
         if not snapshot_name:
-            return Response("Could not find any active snapshot to revert to.", status=status.HTTP_417_EXPECTATION_FAILED)
-        logical_unit = LogicalUnit.objects.get(pk=pk)
+            return JsonResponse({"result": False, "message": "Could not find any active snapshot to revert to"})
         logical_volume = self.get_logical_volume(logical_unit)
         if not logical_volume:
-            raise ParseError("Logical volume not found")
+            return JsonResponse({"result": False, "message": "Logical volume not found"})
         if LogicalUnitViewSet.detach_from_target(logical_unit) and logical_volume.revert_to_snapshot(snapshot_name):
-            return Response("Successfully reverted to snapshot '%s'" % snapshot_name, status=status.HTTP_200_OK)
-        return Response("Could not revert to snapshot '%s'" % snapshot_name, status=status.HTTP_417_EXPECTATION_FAILED)
+            logical_unit.status = LogicalUnitStatus.ONLINE.value
+            logical_unit.save()
+            return JsonResponse({"result": True, "message": "Successfully reverted to snapshot '%s'" % snapshot_name})
+        return JsonResponse({"result": False, "message": "Could not revert to snapshot '%s'" % snapshot_name})
 
     @detail_route(methods=["PATCH"])
     def dump(self, request, pk):

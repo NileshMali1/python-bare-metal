@@ -1,4 +1,5 @@
 import re
+import os
 from helpers.lvm2.helper import Helper
 from enum import Enum, unique
 import inspect
@@ -397,13 +398,13 @@ class LogicalVolume(Disk):
 
     def get_snapshots(self, snap_name=None):
         snapshots = self._filter_info("source_of")
-        if snapshots:
-            if snap_name:
-                return [Snapshot(self._device_path.replace(self.get_name(), snapshot))
-                        for snapshot in snapshots if snapshot == snap_name]
-            else:
-                return [Snapshot(self._device_path.replace(self.get_name(), snapshot)) for snapshot in snapshots]
-        return None
+        if not snapshots:
+            return None
+        if snap_name:
+            return [Snapshot(os.path.join(os.path.dirname(self._device_path), snapshot))
+                    for snapshot in snapshots if snapshot == snap_name]
+        else:
+            return [Snapshot(os.path.join(os.path.dirname(self._device_path), snapshot)) for snapshot in snapshots]
 
     def create_snapshot(self, snapshot_name, size, unit="GiB"):
         command = ["lvcreate", "--name", snapshot_name, "--snapshot", self._device_path, "--size", str(size)+unit]
@@ -452,7 +453,7 @@ class Snapshot(LogicalVolume):
         if result:
             matcher = re.search(r"active destination for ([a-zA-Z0-9]+)", result)
             if matcher:
-                return LogicalVolume(self._device_path.replace(self.get_name(), matcher.group(1)))
+                return LogicalVolume(os.path.join(os.path.dirname(self._device_path), matcher.group(1)))
         return None
 
     def get_snapshots(self, snap_name=None):

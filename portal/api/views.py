@@ -82,7 +82,9 @@ class TargetViewSet(viewsets.ModelViewSet):
         logical_unit = self.get_boot_logical_unit(target)
         if not logical_unit:
             return JsonResponse({'result': False, 'message': "No logical unit found for booting"})
-        LogicalUnitViewSet.attach_to_target(logical_unit)
+        check_passed = LogicalUnitViewSet.attach_to_target(logical_unit)
+        if not check_passed:
+            return JsonResponse({'result': False, 'message': "Unable to attach logical unit to target"})
         logical_unit.status = LogicalUnitStatus.BUSY.value
         logical_unit.last_attached = timezone.now()
         if logical_unit.boot_count > 0:
@@ -172,14 +174,12 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         logical_volumes = volume_group.get_logical_volumes(logical_unit.name)
         if not logical_volumes:
             return None
-        logical_volume = logical_volumes[0]
-        device_path = logical_volume.get_path()
         active_snapshot = logical_unit.snapshots.filter(active=True).first()
         if active_snapshot:
-            snapshots = logical_volume.get_snapshots(active_snapshot.name)
-            if snapshots:
-                device_path = snapshots[0].get_path()
-        return device_path
+            snapshots = logical_volumes[0].get_snapshots(active_snapshot.name)
+            return snapshots[0].get_path() if snapshots else None
+        snapshot = logical_unit.snapshots.filter().first()
+        return logical_volumes[0].get_path() if not snapshot else None
 
     @staticmethod
     def get_logical_volume(logical_unit):
@@ -203,9 +203,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         if not iscsi_target.exists():
             iscsi_target.add()
         device_path = LogicalUnitViewSet.get_device_path(logical_unit)
-        if not device_path:
-            return False
-        if iscsi_target.attach_logical_unit(device_path, logical_unit.id):
+        if device_path and iscsi_target.attach_logical_unit(device_path, logical_unit.id):
             return iscsi_target.update_logical_unit_params(logical_unit.id, vendor_id=logical_unit.vendor_id,
                                                            product_id=logical_unit.product_id,
                                                            product_rev=logical_unit.product_rev)

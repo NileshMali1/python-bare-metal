@@ -177,7 +177,8 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         active_snapshot = logical_unit.snapshots.filter(active=True).first()
         if active_snapshot:
             snapshots = logical_volume.get_snapshots(active_snapshot.name)
-            device_path = snapshots[0].get_path()
+            if snapshots:
+                device_path = snapshots[0].get_path()
         return device_path
 
     @staticmethod

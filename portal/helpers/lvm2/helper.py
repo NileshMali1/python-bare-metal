@@ -65,7 +65,7 @@ class Helper(object):
                         source_of = True
                         continue
                     if len(splits) == 1 and source_of:
-                        match = re.search(r"([a-zA-z0-9]+)\s+", splits[0])
+                        match = re.search(r"(.+)\s+", splits[0])
                         if match:
                             if "source_of" not in info:
                                 info["source_of"] = []

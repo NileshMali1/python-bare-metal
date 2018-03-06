@@ -358,6 +358,8 @@ class SnapshotViewSet(viewsets.ModelViewSet):
                                                                    logical_unit=logical_unit)
                 if created:
                     snapshot.size_in_gb = size
+                    if request.data.__contains__('description') and request.data.__getitem__('description'):
+                        snapshot.description = request.data.__getitem__('description')
                     if request.data.__contains__('active') and request.data.__getitem__('active'):
                         snapshot.active = True if str(request.data.__getitem__('active')).lower() == "true" else False
                     snapshot.save()

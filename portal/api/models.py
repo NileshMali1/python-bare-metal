@@ -48,7 +48,7 @@ class Target(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     boot = models.BooleanField(default=False)
     active = models.BooleanField(default=False)
-    status = models.CharField(max_length=1, choices=TargetStatus.choices(), default=TargetStatus.OFFLINE.value)
+    status = models.CharField(max_length=1, choices=TargetStatus.choices(), default=str(TargetStatus.OFFLINE.value))
     initiator = models.OneToOneField(Initiator, on_delete=models.SET_NULL, null=True, blank=False, related_name="target")
 
     def __str__(self):
@@ -80,6 +80,7 @@ class Snapshot(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, unique=True)
     size_in_gb = models.FloatField(default=5.0)
     active = models.BooleanField(default=False)
+    description = models.TextField(blank=True, null=True)
     logical_unit = models.ForeignKey(LogicalUnit, on_delete=models.CASCADE, null=False, blank=False,
                                      related_name="snapshots")
 

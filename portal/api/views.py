@@ -254,7 +254,7 @@ class LogicalUnitViewSet(viewsets.ModelViewSet):
         logical_volume = self.get_logical_volume(logical_unit)
         if not logical_volume:
             raise ParseError("Logical volume not found")
-        if logical_volume.revert_to_snapshot(snapshot_name):
+        if LogicalUnitViewSet.detach_from_target(logical_unit) and logical_volume.revert_to_snapshot(snapshot_name):
             return Response("Successfully reverted to snapshot '%s'" % snapshot_name, status=status.HTTP_200_OK)
         return Response("Could not revert to snapshot '%s'" % snapshot_name, status=status.HTTP_417_EXPECTATION_FAILED)
 

@@ -1,5 +1,14 @@
 from rest_framework import serializers
-from api.models import Initiator, Target, LogicalUnit, Snapshot
+from api.models import ControlDevice, Initiator, Target, LogicalUnit, Snapshot
+
+
+class ControlDeviceSerializer(serializers.HyperlinkedModelSerializer):
+    pdu_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
+    kvm_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
+
+    class Meta:
+        model = ControlDevice
+        fields = '__all__'
 
 
 class InitiatorSerializer(serializers.HyperlinkedModelSerializer):

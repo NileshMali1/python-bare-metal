@@ -7,17 +7,24 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.urls import resolve
 from urllib.parse import urlparse
-from api.models import Initiator, Target, LogicalUnit, Snapshot
-from api.serializers import InitiatorSerializer, TargetSerializer, LogicalUnitSerializer, SnapshotSerializer
+from api.models import ControlDevice, Initiator, Target, LogicalUnit, Snapshot
+from api.serializers import ControlDeviceSerializer, InitiatorSerializer, TargetSerializer, LogicalUnitSerializer,\
+    SnapshotSerializer
 from helpers.lvm2.entities import VolumeGroup
 from helpers.lvm2.entities import DiskStatus as LogicalUnitStatus
 from helpers.tgtadm.iscsi_target import ISCSITarget
 from helpers.tgtadm.iscsi_initiator import ISCSIInitiator
+from datetime import datetime
 
 
 def url_resolver(url):
     resolved_func, unused_args, resolved_kwargs = resolve(urlparse(url).path)
     return resolved_kwargs['pk']
+
+
+class ControlDeviceViewSet(viewsets.ModelViewSet):
+    queryset = ControlDevice.objects.all()
+    serializer_class = ControlDeviceSerializer
 
 
 class InitiatorViewSet(viewsets.ModelViewSet):
@@ -90,6 +97,8 @@ class TargetViewSet(viewsets.ModelViewSet):
         if logical_unit.boot_count > 0:
             logical_unit.boot_count -= 1
         logical_unit.save()
+        target.initiator.last_initiated = datetime.now()
+        target.initiator.save()
         return JsonResponse({'result': True, "lun": "{0:x}".format(logical_unit.id), "iqn": iscsi_target.get_name(),
                              'message': "use lun id and iqn to form iSCSI URL"})
 

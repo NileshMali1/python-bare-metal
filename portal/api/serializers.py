@@ -1,13 +1,20 @@
 from rest_framework import serializers
-from api.models import ControlDevice, Initiator, Target, LogicalUnit, Snapshot
+from api.models import PDU, KVM, Initiator, Target, LogicalUnit, Snapshot
 
 
-class ControlDeviceSerializer(serializers.HyperlinkedModelSerializer):
-    pdu_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
-    kvm_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
+class PDUSerializer(serializers.HyperlinkedModelSerializer):
+    outlet_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
 
     class Meta:
-        model = ControlDevice
+        model = PDU
+        fields = '__all__'
+
+
+class KVMSerializer(serializers.HyperlinkedModelSerializer):
+    port_endpoint = serializers.HyperlinkedRelatedField(many=True, read_only=True, view_name="initiator-detail")
+
+    class Meta:
+        model = KVM
         fields = '__all__'
 
 

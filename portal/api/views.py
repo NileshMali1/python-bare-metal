@@ -7,8 +7,8 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.urls import resolve
 from urllib.parse import urlparse
-from api.models import ControlDevice, Initiator, Target, LogicalUnit, Snapshot
-from api.serializers import ControlDeviceSerializer, InitiatorSerializer, TargetSerializer, LogicalUnitSerializer,\
+from api.models import PDU, KVM, Initiator, Target, LogicalUnit, Snapshot
+from api.serializers import PDUSerializer, KVMSerializer, InitiatorSerializer, TargetSerializer, LogicalUnitSerializer,\
     SnapshotSerializer
 from helpers.lvm2.entities import VolumeGroup
 from helpers.lvm2.entities import DiskStatus as LogicalUnitStatus
@@ -22,9 +22,14 @@ def url_resolver(url):
     return resolved_kwargs['pk']
 
 
-class ControlDeviceViewSet(viewsets.ModelViewSet):
-    queryset = ControlDevice.objects.all()
-    serializer_class = ControlDeviceSerializer
+class PDUViewSet(viewsets.ModelViewSet):
+    queryset = PDU.objects.all()
+    serializer_class = PDUSerializer
+
+
+class KVMViewSet(viewsets.ModelViewSet):
+    queryset = KVM.objects.all()
+    serializer_class = KVMSerializer
 
 
 class InitiatorViewSet(viewsets.ModelViewSet):

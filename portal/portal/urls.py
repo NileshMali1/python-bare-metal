@@ -16,10 +16,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework import routers
-from api.views import ControlDeviceViewSet, InitiatorViewSet, TargetViewSet, LogicalUnitViewSet, SnapshotViewSet
+from api.views import PDUViewSet, KVMViewSet, InitiatorViewSet, TargetViewSet, LogicalUnitViewSet, SnapshotViewSet
 
 router = routers.DefaultRouter()
-router.register("control_devices", ControlDeviceViewSet)
+router.register("pdus", PDUViewSet)
+router.register("kvms", KVMViewSet)
 router.register("initiators", InitiatorViewSet)
 router.register("targets", TargetViewSet)
 router.register("logical_units", LogicalUnitViewSet)

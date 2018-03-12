@@ -5,32 +5,32 @@ from helpers.lvm2.entities import VolumeGroup
 from helpers.lvm2.entities import DiskStatus as LogicalUnitStatus
 
 
-@unique
-class ControlDeviceCategory(Enum):
-    PDU = "PDU"
-    KVM = "KVM"
-
-    @classmethod
-    def choices(cls):
-        members = inspect.getmembers(cls, lambda member: not (inspect.isroutine(member)))
-        properties = [member for member in members if member[0][:2] != '__' and member[0] not in ['name', 'value']]
-        choices = tuple([(str(property[1].value), property[0]) for property in properties])
-        return choices
-
-
-class ControlDevice(models.Model):
+class PDU(models.Model):
     name = models.CharField(max_length=50, null=False, blank=False, unique=True)
     ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True, blank=False, null=False, unique=True)
     mac_address = models.CharField(max_length=17, null=True, blank=True, unique=True)
-    category = models.CharField(max_length=10, choices=ControlDeviceCategory.choices(), null=False, blank=False)
-    port_count = models.PositiveSmallIntegerField(default=0)
+    total_outlets = models.PositiveSmallIntegerField(default=0)
     model = models.CharField(max_length=100, null=True, blank=True)
     serial = models.CharField(max_length=100, null=True, blank=True)
     username = models.CharField(max_length=100, null=True, blank=True)
     password = models.CharField(max_length=100, null=True, blank=True)
 
     def __str__(self):
-        return self.name + " [of category '" + self.category + "']"
+        return self.name + " [hash IP '" + self.ip_address + "']"
+
+
+class KVM(models.Model):
+    name = models.CharField(max_length=50, null=False, blank=False, unique=True)
+    ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True, blank=False, null=False, unique=True)
+    mac_address = models.CharField(max_length=17, null=True, blank=True, unique=True)
+    total_ports = models.PositiveSmallIntegerField(default=0)
+    model = models.CharField(max_length=100, null=True, blank=True)
+    serial = models.CharField(max_length=100, null=True, blank=True)
+    username = models.CharField(max_length=100, null=True, blank=True)
+    password = models.CharField(max_length=100, null=True, blank=True)
+
+    def __str__(self):
+        return self.name + " [has IP '" + self.ip_address + "']"
 
 
 @unique
@@ -52,11 +52,11 @@ class Initiator(models.Model):
     mode = models.CharField(max_length=1, choices=InitiatorMode.choices(), default=InitiatorMode.AUTOMATIC.value,
                             null=False, blank=False)
     ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True, blank=True, null=True)
-    pdu_device = models.ForeignKey(ControlDevice, on_delete=models.SET_NULL, null=True, blank=True,
-                                   related_name="pdu_endpoint")
+    pdu_device = models.ForeignKey(PDU, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="outlet_endpoint")
     pdu_device_port = models.PositiveSmallIntegerField(default=0)
-    kvm_device = models.ForeignKey(ControlDevice, on_delete=models.SET_NULL, null=True, blank=True,
-                                   related_name="kvm_endpoint")
+    kvm_device = models.ForeignKey(KVM, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="port_endpoint")
     kvm_device_port = models.PositiveSmallIntegerField(default=0)
     last_initiated = models.DateTimeField(null=True, blank=False)
 
